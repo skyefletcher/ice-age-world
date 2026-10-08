@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Godot;
 
@@ -7,35 +8,60 @@ namespace IceAgeWorld;
 public readonly record struct Lake(Vector2 Centre, float Radius, float Surface);
 
 /// <summary>
-/// A placed pine tree, for animals that climb: where its trunk runs and where its perching limb sticks out.
-/// <see cref="Transform"/> places the tree's <see cref="PineTree.Shape"/> in the world, and the other values are in
-/// the tree's own space.
+/// A placed tree, for animals that climb: where its trunk runs, where its branches reach and where its top is.
+/// <see cref="Transform"/> places the tree's <see cref="Shape"/> in the world; heights up the trunk are measured in
+/// world units above the tree's foot.
 /// </summary>
-public readonly record struct Tree(Transform3D Transform, float TrunkRadius, float TrunkHeight, float PerchHeight, float PerchLength)
+public readonly record struct Tree(Transform3D Transform, TreeBuilder.Shape Shape)
 {
     private float HeightScale => Transform.Basis.Y.Length();
     private float WidthScale => Transform.Basis.X.Length();
+    private float TrunkRadius => Shape.TrunkRadius;
+    private float TrunkHeight => Shape.TrunkHeight;
+    private float TopHeight => Shape.TopHeight;
+
+    public IReadOnlyList<TreeBuilder.Branch> Branches => Shape.Branches;
+
+    /// <summary>How high up the trunk a branch grows, above the tree's foot.</summary>
+    public float BranchHeight(int branch) => Branches[branch].From.Y * HeightScale;
+
+    /// <summary>Level direction a branch points out from the trunk.</summary>
+    public Vector3 BranchDirection(int branch)
+    {
+        var b = Branches[branch];
+        return (Transform.Basis * (b.To - b.From) with { Y = 0f }).Normalized();
+    }
+
+    /// <summary>Length of a branch from root to tip.</summary>
+    public float BranchLength(int branch)
+    {
+        var b = Branches[branch];
+        return (Transform.Basis * (b.To - b.From)).Length();
+    }
+
+    /// <summary>The top of a branch's wood at fraction <paramref name="f"/> of the way out, where a walker's paws go.</summary>
+    public Vector3 BranchTopAt(int branch, float f) => Transform * Branches[branch].TopAt(f);
 
     /// <summary>The middle of the trunk at the given height above the tree's foot. Trees lean a little, so it drifts.</summary>
     public Vector3 AxisAt(float height) => Transform * (Vector3.Up * (height / HeightScale));
 
     /// <summary>How thick the trunk is at the given height above the tree's foot; it tapers towards the top.</summary>
     public float RadiusAt(float height) =>
-        TrunkRadius * WidthScale * Mathf.Lerp(1f, 0.15f, Mathf.Clamp(height / HeightScale / TrunkHeight, 0f, 1f));
+        TrunkRadius * WidthScale * Mathf.Lerp(1f, TreeBuilder.TrunkTaper, Mathf.Clamp(height / HeightScale / TrunkHeight, 0f, 1f));
 
-    /// <summary>Height of the perching limb above the tree's foot.</summary>
-    public float PerchClimb => PerchHeight * HeightScale;
+    /// <summary>
+    /// How far up the trunk, above the tree's foot, a climber clings before scrambling out onto the top: high up,
+    /// where the trunk is still thick enough to grip.
+    /// </summary>
+    public float ClimbTop => Mathf.Min(TrunkHeight * 0.85f, TopHeight - 0.6f) * HeightScale;
 
-    /// <summary>Level direction the perching limb points.</summary>
-    public Vector3 PerchDirection => (Transform.Basis.X with { Y = 0f }).Normalized();
-
-    /// <summary>The spot part-way along the limb where an animal lies, on top of the wood.</summary>
-    public Vector3 PerchSpot => Transform * new Vector3(PerchLength * 0.55f, PerchHeight + 0.12f, 0f);
+    /// <summary>The very top of the tree, where a climber stands to look out over the forest.</summary>
+    public Vector3 Summit => Transform * (Vector3.Up * TopHeight);
 }
 
 /// <summary>
 /// Procedurally generates the ice-age landscape: a noise-based heightmap mesh, matching collision,
-/// a ring of mountains around the edge to keep players in, lake basins and patches of randomised pine forest.
+/// a ring of mountains around the edge to keep players in, lake basins and patches of mixed, randomised forest.
 /// </summary>
 public partial class Terrain : Node3D
 {
@@ -56,8 +82,8 @@ public partial class Terrain : Node3D
     /// <summary>Width of the sloping bank between a lake's water line and the surrounding land.</summary>
     public const float ShoreWidth = 6f;
 
-    /// <summary>Number of distinct tree shapes generated; each placed tree is one of these, further varied.</summary>
-    [Export] public int TreeVariants { get; set; } = 8;
+    /// <summary>Distinct shapes generated for each kind of tree; each placed tree is one of these, further varied.</summary>
+    [Export] public int VariantsPerKind { get; set; } = 3;
 
     private static readonly Color Steppe = new(0.58f, 0.6f, 0.42f);
     private static readonly Color Snow = new(0.93f, 0.95f, 1f);
@@ -331,6 +357,14 @@ public partial class Terrain : Node3D
             Frequency = 0.012f,
         };
 
+        // Each kind of tree grows in stands of its own, which blend into one another at their edges.
+        var kindNoise = new FastNoiseLite
+        {
+            Seed = Seed + 2,
+            NoiseType = FastNoiseLite.NoiseTypeEnum.SimplexSmooth,
+            Frequency = 0.02f,
+        };
+
         var material = new StandardMaterial3D
         {
             VertexColorUseAsAlbedo = true,
@@ -339,12 +373,14 @@ public partial class Terrain : Node3D
             CullMode = BaseMaterial3D.CullModeEnum.Disabled,
         };
 
-        // A handful of base shapes, each one a different tree; every placed tree then varies further.
-        var variants = new PineTree.Shape[TreeVariants];
-        var placements = new List<(Transform3D Transform, Color Tint)>[TreeVariants];
-        for (int v = 0; v < TreeVariants; v++)
+        // A handful of base shapes of every kind, each one a different tree; every placed tree then varies further.
+        var kinds = Enum.GetValues<TreeKind>();
+        int variantCount = kinds.Length * VariantsPerKind;
+        var variants = new TreeBuilder.Shape[variantCount];
+        var placements = new List<(Transform3D Transform, Color Tint)>[variantCount];
+        for (int v = 0; v < variantCount; v++)
         {
-            variants[v] = PineTree.Build(rng, material);
+            variants[v] = TreeBuilder.Build(kinds[v / VariantsPerKind], rng, material);
             placements[v] = [];
         }
 
@@ -379,17 +415,22 @@ public partial class Terrain : Node3D
                         * Basis.FromScale(new Vector3(width, height, width));
             float brightness = rng.RandfRange(0.8f, 1.1f);
 
-            int variant = rng.RandiRange(0, TreeVariants - 1);
+            // Mostly the kind whose stand this is, with the odd tree of another kind seeded in among them.
+            float stand = Mathf.InverseLerp(0.25f, 0.75f, kindNoise.GetNoise2D(x, z) * 0.5f + 0.5f);
+            int kind = rng.Randf() < 0.2f
+                ? rng.RandiRange(0, kinds.Length - 1)
+                : Mathf.Clamp((int)(stand * kinds.Length), 0, kinds.Length - 1);
+            int variant = kind * VariantsPerKind + rng.RandiRange(0, VariantsPerKind - 1);
+
             var transform = new Transform3D(basis, new Vector3(x, h - 0.2f, z));
             placements[variant].Add((transform, new Color(brightness, brightness, brightness)));
-            var shape = variants[variant];
-            _trees.Add(new Tree(transform, shape.TrunkRadius, shape.TrunkHeight, shape.PerchHeight, shape.PerchLength));
+            _trees.Add(new Tree(transform, variants[variant]));
             bodies.AddChild(new CollisionShape3D { Shape = trunkShape, Position = new Vector3(x, h + 3f, z) });
             placed++;
         }
 
         AddChild(bodies);
-        for (int v = 0; v < TreeVariants; v++)
+        for (int v = 0; v < variantCount; v++)
             AddTreeVariant(variants[v].Mesh, placements[v]);
     }
 

@@ -70,7 +70,7 @@ public partial class Player : CharacterBody3D
 
     private enum Feeding { None, Eating, Drinking }
 
-    private enum Mode { Ground, Flying, Climbing, Perched }
+    private enum Mode { Ground, Flying, Climbing, Treetop, Branch }
 
     private readonly float _gravity = ProjectSettings.GetSetting("physics/3d/default_gravity").AsSingle();
 
@@ -137,6 +137,7 @@ public partial class Player : CharacterBody3D
     {
         float yaw = Animal.Rotation.Y;
         LeaveTree();
+        Animal.Landing = 0f;
         Animal.Visible = false;
         if (_herds.TryGetValue(Animal, out var oldHerd))
             oldHerd.Visible = false;
@@ -152,6 +153,7 @@ public partial class Player : CharacterBody3D
         _mode = Mode.Ground;
         Animal.Visible = true;
         Animal.IsFlying = Animal.IsClimbing = Animal.IsSwimming = false;
+        _fromTree = false;
 
         // Interrupt any meal in progress; the new animal may not even eat grass.
         _feeding = Feeding.None;
@@ -175,6 +177,8 @@ public partial class Player : CharacterBody3D
     {
         _mode = Mode.Ground;
         Animal.IsFlying = Animal.IsClimbing = false;
+        _fromTree = false;
+        Animal.Landing = 0f;
         Animal.Rotation = new Vector3(0, Animal.Rotation.Y, 0);
         float ground = Terrain?.GetHeight(0, 0) ?? 0f;
         GlobalPosition = new Vector3(0, ground + 2f, 0);
@@ -229,7 +233,8 @@ public partial class Player : CharacterBody3D
                 Fly(dt, direction);
                 break;
             case Mode.Climbing:
-            case Mode.Perched:
+            case Mode.Treetop:
+            case Mode.Branch:
                 Climb(dt, input);
                 break;
             default:
@@ -340,6 +345,7 @@ public partial class Player : CharacterBody3D
             stride = IsOnFloor() ? Mathf.Clamp(groundSpeed / Stats.WalkSpeed, 0f, 1f) : 0f;
         }
         Animal.IsSwimming = IsSwimming;
+        UpdateLanding(dt);
         Animal.Animate(groundSpeed, stride, _headDip, dt);
     }
 

@@ -5,3 +5,6 @@
 .vs/
 .idea/
 *.user
+
+# Claude Code local settings and worktrees
+.claude/

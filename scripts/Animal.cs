@@ -140,6 +140,9 @@ public abstract partial class Animal : Node3D
     /// <summary>0..1 how hard a flying animal is beating its wings; 0 glides on outstretched wings.</summary>
     public float Flap { get; set; }
 
+    /// <summary>0..1 how far a dropping animal has tipped forward to land forepaws first, easing back to 0 after touchdown.</summary>
+    public float Landing { get; set; }
+
     /// <summary>0..1 how far a flying animal has tucked its wings in to dive.</summary>
     public float Dive { get; set; }
 
