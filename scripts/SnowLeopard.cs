@@ -4,8 +4,8 @@ using Godot;
 namespace IceAgeWorld;
 
 /// <summary>
-/// A snow leopard, built entirely in code: a long low body, a small round head with a short muzzle, rounded
-/// ears, two-jointed legs on big furry paws and a very long, thick tail, dressed in a pale coat with dark
+/// A snow leopard, built entirely in code: a long low body, a big round head with a short muzzle, large eyes,
+/// big rounded ears, two-jointed legs on big furry paws and a very long, thick tail, dressed in a pale coat with dark
 /// rosettes and a fringe of soft belly fur. It animates its own walk, which breaks into a bounding gallop at
 /// speed, crouches on its forelegs to drink, swings its tail and twitches its ears. The model faces -Z.
 /// </summary>
@@ -21,7 +21,7 @@ public partial class SnowLeopard : Animal
     private const float CrouchPitch = 0.18f;
 
     /// <summary>Distance from the body's centre to the shoulders and hips along the spine.</summary>
-    private const float LegOffset = 0.36f;
+    private const float LegOffset = 0.41f;
 
     private const float FrontUpperLength = 0.25f;
     private const float FrontLowerLength = 0.26f;
@@ -31,7 +31,7 @@ public partial class SnowLeopard : Animal
     private static readonly Color FurRoot = new(0.5f, 0.49f, 0.46f);
     private static readonly Color FurTip = new(0.74f, 0.73f, 0.69f);
     /// <summary>How much bigger the whole head (skull, face, ears and fur) is drawn than it is modelled.</summary>
-    private const float HeadScale = 1.3f;
+    private const float HeadScale = 1.75f;
     /// <summary>The coat lies back along the body, from head to tail, but stands up enough to look thick and fluffy.</summary>
     private static readonly Vector3 CoatDrift = new(0, -0.1f, 0.4f);
 
@@ -162,21 +162,21 @@ public partial class SnowLeopard : Animal
         _frame = Pivot(this, "Frame", Vector3.Zero);
 
         // Body: long and low, deeper at the chest, with soft pale fur all over that hangs longer along the belly.
-        var body = Pivot(_frame, "Body", new Vector3(0, 0.6f, 0));
+        var body = Pivot(_frame, "Body", new Vector3(0, 0.62f, 0));
         Attach(body, "Hide", Ellipsoid(BodyShape, 36, 20, coat));
-        Attach(body, "Coat", Strands(rng, OnShape(rng, BodyShape, 5000, u => u.Y >= -0.35f), CoatDrift,
+        Attach(body, "Coat", Strands(rng, OnShape(rng, BodyShape, 6500, u => u.Y >= -0.35f), CoatDrift,
             0.035f, 0.065f, FurRoot, FurTip, _hair, width: 0.026f));
-        Attach(body, "Belly", Strands(rng, OnShape(rng, BodyShape, 2000, u => u.Y < -0.35f), new Vector3(0, -1f, 0),
+        Attach(body, "Belly", Strands(rng, OnShape(rng, BodyShape, 2600, u => u.Y < -0.35f), new Vector3(0, -1f, 0),
             0.05f, 0.085f, FurRoot, FurTip, _hair, width: 0.026f));
-        Attach(body, "Ruff", Strands(rng, OnShape(rng, BodyShape, 500, u => u.Z < -0.6f && u.Y < 0.3f), new Vector3(0, -0.6f, -0.3f),
+        Attach(body, "Ruff", Strands(rng, OnShape(rng, BodyShape, 650, u => u.Z < -0.6f && u.Y < 0.3f), new Vector3(0, -0.6f, -0.3f),
             0.05f, 0.08f, FurRoot, FurTip, _hair, width: 0.026f));
 
-        // Head on a short neck that bends at the shoulders to drink.
-        _neck = Pivot(_frame, "Neck", new Vector3(0, 0.68f, -0.42f));
-        var headPosition = new Vector3(0, 0.1f, -0.28f);
-        Attach(_neck, "Joint", new SphereMesh { Radius = 0.135f, Height = 0.27f, Material = coat });
-        Attach(_neck, "Throat", Tube([Vector3.Zero, headPosition], [0.14f, 0.09f], 12, coat, capEnd: false));
-        Attach(_neck, "ThroatFur", Strands(rng, OnSegment(rng, 700, Vector3.Zero, headPosition, 0.14f, 0.09f), CoatDrift,
+        // Head on a short, slender neck that bends at the shoulders to drink.
+        _neck = Pivot(_frame, "Neck", new Vector3(0, 0.72f, -0.55f));
+        var headPosition = new Vector3(0, 0.09f, -0.22f);
+        Attach(_neck, "Joint", new SphereMesh { Radius = 0.11f, Height = 0.22f, Material = coat });
+        Attach(_neck, "Throat", Tube([Vector3.Zero, headPosition], [0.11f, 0.075f], 12, coat, capEnd: false));
+        Attach(_neck, "ThroatFur", Strands(rng, OnSegment(rng, 500, Vector3.Zero, headPosition, 0.11f, 0.075f), CoatDrift,
             0.035f, 0.065f, FurRoot, FurTip, _hair, width: 0.026f));
         var head = _head = Pivot(_neck, "Head", headPosition);
         head.Scale = Vector3.One * HeadScale;
@@ -191,19 +191,19 @@ public partial class SnowLeopard : Animal
 
         foreach (float side in new[] { -1f, 1f })
         {
-            var eyePosition = new Vector3(side * 0.05f, 0.025f, -0.088f);
-            Attach(head, "Eye", new SphereMesh { Radius = 0.019f, Height = 0.038f, Material = eye }, eyePosition);
-            Attach(head, "Pupil", new SphereMesh { Radius = 0.009f, Height = 0.018f, Material = pupil },
-                eyePosition + new Vector3(side * 0.004f, 0, -0.013f));
+            var eyePosition = new Vector3(side * 0.057f, 0.025f, -0.084f);
+            Attach(head, "Eye", new SphereMesh { Radius = 0.032f, Height = 0.064f, Material = eye }, eyePosition);
+            Attach(head, "Pupil", new SphereMesh { Radius = 0.016f, Height = 0.032f, Material = pupil },
+                eyePosition + new Vector3(side * 0.006f, 0, -0.023f));
         }
 
-        // Small round ears set wide on the head.
+        // Big round ears set wide on the head.
         _ears = new Node3D[2];
         for (int i = 0; i < 2; i++)
         {
             float side = i == 0 ? -1f : 1f;
-            _ears[i] = Pivot(head, "Ear", new Vector3(side * 0.065f, 0.07f, 0.02f));
-            Attach(_ears[i], "Flap", Ellipsoid(new Vector3(0.035f, 0.04f, 0.012f), 12, 8, coat), new Vector3(side * 0.01f, 0.03f, 0));
+            _ears[i] = Pivot(head, "Ear", new Vector3(side * 0.07f, 0.07f, 0.02f));
+            Attach(_ears[i], "Flap", Ellipsoid(new Vector3(0.062f, 0.072f, 0.017f), 12, 8, coat), new Vector3(side * 0.02f, 0.055f, 0));
         }
 
         // Legs: an upper and lower segment each, ending in a broad paw. The forelegs are straight columns;
@@ -220,7 +220,7 @@ public partial class SnowLeopard : Animal
             var knee = front ? new Vector3(0, -upperLength, 0.01f) : new Vector3(0, -upperLength, 0.07f);
 
             float hipHeight = upperLength + lowerLength + 0.04f;
-            _upperLegs[i] = Pivot(_frame, legNames[i], new Vector3(side * 0.11f, hipHeight, front ? -LegOffset : LegOffset));
+            _upperLegs[i] = Pivot(_frame, legNames[i], new Vector3(side * 0.13f, hipHeight, front ? -LegOffset : LegOffset));
             Attach(_upperLegs[i], "Upper", Tube([new Vector3(0, 0.05f, 0), knee],
                 front ? [0.08f, 0.055f] : [0.11f, 0.055f], 12, coat, capEnd: false));
             Attach(_upperLegs[i], "UpperFur", Strands(rng, OnSegment(rng, 400, new Vector3(0, 0.05f, 0), knee,
@@ -239,7 +239,7 @@ public partial class SnowLeopard : Animal
         // so it can sway and curl, with a fluff of fur along its length.
         _tail = new Node3D[TailSegments];
         Node3D parent = _frame;
-        var position = new Vector3(0, 0.68f, 0.48f);
+        var position = new Vector3(0, 0.72f, 0.56f);
         for (int i = 0; i < TailSegments; i++)
         {
             float top = Mathf.Lerp(0.07f, 0.06f, i / (float)TailSegments);
@@ -258,7 +258,7 @@ public partial class SnowLeopard : Animal
     /// <summary>Long low body, a little deeper through the chest than the flanks.</summary>
     private static Vector3 BodyShape(Vector3 u)
     {
-        var p = new Vector3(u.X * 0.19f, u.Y * 0.19f, u.Z * 0.52f);
+        var p = new Vector3(u.X * 0.23f, u.Y * 0.23f, u.Z * 0.6f);
         float chest = Mathf.SmoothStep(0.3f, -0.4f, p.Z);
         p.X *= 1f + chest * 0.12f;
         if (u.Y < 0)
