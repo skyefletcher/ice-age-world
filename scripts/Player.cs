@@ -35,6 +35,9 @@ public partial class Player : CharacterBody3D
     /// <summary>Thirst restored by one full drink.</summary>
     [Export] public float WaterPerDrink { get; set; } = 40f;
 
+    /// <summary>Seconds to sit or lie down, or to get up again.</summary>
+    [Export] public float PostureChangeSeconds { get; set; } = 1f;
+
     /// <summary>Once stamina runs out, it must refill this far before the animal can exert itself again.</summary>
     [Export] public float RecoveredStamina { get; set; } = 25f;
 
@@ -62,6 +65,9 @@ public partial class Player : CharacterBody3D
 
     public bool IsFeeding => _feeding != Feeding.None;
     public bool IsSwimming { get; private set; }
+
+    /// <summary>Whether the player has asked the animal to sit or lie down; its companions follow suit.</summary>
+    public Posture Posture { get; private set; }
 
     /// <summary>The animal the player is currently playing as.</summary>
     public Animal Animal => _animals[_animalIndex];
@@ -154,6 +160,8 @@ public partial class Player : CharacterBody3D
         Animal.Visible = true;
         Animal.IsFlying = Animal.IsClimbing = Animal.IsSwimming = false;
         _fromTree = false;
+        Posture = Posture.Standing;
+        Animal.Sitting = Animal.Lying = 0f;
 
         // Interrupt any meal in progress; the new animal may not even eat grass.
         _feeding = Feeding.None;
@@ -179,6 +187,8 @@ public partial class Player : CharacterBody3D
         Animal.IsFlying = Animal.IsClimbing = false;
         _fromTree = false;
         Animal.Landing = 0f;
+        Posture = Posture.Standing;
+        Animal.Sitting = Animal.Lying = 0f;
         Animal.Rotation = new Vector3(0, Animal.Rotation.Y, 0);
         float ground = Terrain?.GetHeight(0, 0) ?? 0f;
         GlobalPosition = new Vector3(0, ground + 2f, 0);
@@ -259,17 +269,20 @@ public partial class Player : CharacterBody3D
         // never flickers the animal in and out of swimming.
         IsSwimming = waterDepth > Stats.FloatDepth * (IsSwimming ? 0.5f : 0.87f);
 
+        // Sit or lie down, or get up again. Moving or jumping gets the animal up, but it can't go anywhere until it's
+        // back on its feet.
+        bool resting = UpdatePosture(dt, direction);
         UpdateFeeding(dt);
 
         // The animal stands still while it eats or drinks.
-        if (IsFeeding)
+        if (IsFeeding || resting)
             direction = Vector3.Zero;
 
         // A climber that walks into a tree trunk starts up it.
         if (direction != Vector3.Zero && Stats.Can(Ability.ClimbTrees) && IsOnFloor() && !IsSwimming && TryStartClimb(direction))
             return;
 
-        bool jumping = !IsFeeding && Input.IsActionJustPressed(InputSetup.Jump);
+        bool jumping = !IsFeeding && !resting && Input.IsActionJustPressed(InputSetup.Jump);
         if (jumping && Stats.Can(Ability.Fly) && (IsOnFloor() || IsSwimming))
         {
             TakeOff(direction);
@@ -359,7 +372,7 @@ public partial class Player : CharacterBody3D
     /// </summary>
     private void UpdateFeeding(float dt)
     {
-        if (!IsFeeding && IsOnFloor() && !IsSwimming)
+        if (!IsFeeding && IsOnFloor() && !IsSwimming && !Animal.IsResting)
         {
             var mouth = GlobalPosition - Animal.GlobalBasis.Z * Stats.MouthDistance;
             int grass = Stats.CanGraze ? Grassland?.FindEdible(mouth, Stats.EatReach) ?? -1 : -1;
@@ -409,6 +422,24 @@ public partial class Player : CharacterBody3D
             _feeding = Feeding.None;
     }
 
+    /// <summary>
+    /// Sits or lies down when its key is pressed on dry ground; pressing it again, moving or jumping gets the animal
+    /// up. Eases the model into and out of the pose, and returns true while the animal is down or still getting up.
+    /// </summary>
+    private bool UpdatePosture(float dt, Vector3 direction)
+    {
+        bool canRest = IsOnFloor() && !IsSwimming && !IsFeeding;
+        if (canRest && Input.IsActionJustPressed(InputSetup.Sit))
+            Posture = Posture == Posture.Sitting ? Posture.Standing : Posture.Sitting;
+        else if (canRest && Input.IsActionJustPressed(InputSetup.LieDown))
+            Posture = Posture == Posture.Lying ? Posture.Standing : Posture.Lying;
+        else if (!canRest || direction != Vector3.Zero || Input.IsActionJustPressed(InputSetup.Jump))
+            Posture = Posture.Standing;
+
+        Animal.Settle(Posture, PostureChangeSeconds, dt);
+        return Animal.IsResting;
+    }
+
     /// <summary>Hunger and thirst drain all the time, and faster when the animal is working hard.</summary>
     private void UpdateNeeds(float dt, bool exerting)
     {
@@ -419,14 +450,16 @@ public partial class Player : CharacterBody3D
 
     /// <summary>
     /// Stamina drains while the animal works, by <paramref name="effort"/> (1 is flat out), and refills while it rests.
-    /// Running dry leaves it exhausted until it has partly got its breath back.
+    /// Running dry leaves it exhausted until it has partly got its breath back. Sitting down brings it back half as
+    /// fast again, and lying down twice as fast.
     /// </summary>
     private void UpdateStamina(float dt, float effort)
     {
+        float rest = 1f + Animal.Sitting * 0.5f + Animal.Lying;
         if (effort > 0f)
             Stamina = Mathf.Max(0f, Stamina - 100f / Stats.StaminaSeconds * effort * dt);
         else
-            Stamina = Mathf.Min(100f, Stamina + 100f / Stats.RecoverySeconds * dt);
+            Stamina = Mathf.Min(100f, Stamina + 100f / Stats.RecoverySeconds * rest * dt);
 
         if (Stamina <= 0f)
             IsExhausted = true;

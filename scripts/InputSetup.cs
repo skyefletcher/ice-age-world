@@ -15,6 +15,8 @@ public static class InputSetup
     public const string Sprint = "sprint";
     public const string Jump = "jump";
     public const string Eat = "eat";
+    public const string Sit = "sit";
+    public const string LieDown = "lie_down";
     public const string SwitchAnimal = "switch_animal";
 
     public static void Register()
@@ -26,6 +28,8 @@ public static class InputSetup
         Add(Sprint, Key.Shift);
         Add(Jump, Key.Space);
         Add(Eat, Key.E);
+        Add(Sit, Key.C);
+        Add(LieDown, Key.X);
         Add(SwitchAnimal, Key.Tab);
     }
 

@@ -18,6 +18,12 @@ public partial class SnowLeopard : Animal
     private const float TailSegmentLength = 0.13f;
     private const float HeadDownAngle = -1.3f;
 
+    /// <summary>
+    /// How much bigger the whole cat is drawn than it is modelled, so it stands taller among the other animals. Its
+    /// collision body, camera and reach grow with it; everything below is in modelled (unscaled) units.
+    /// </summary>
+    private const float BodyScale = 1.3f;
+
     /// <summary>How much bigger the whole head (skull, face, ears and fur) is drawn than it is modelled.</summary>
     private const float HeadScale = 1.6f;
 
@@ -43,6 +49,22 @@ public partial class SnowLeopard : Animal
     private const float BackUpperLength = 0.24f;
     private const float BackLowerLength = 0.17f;
 
+    /// <summary>Gap between the bottom of a straight leg and the ground, which the paw fills.</summary>
+    private const float LegClearance = 0.04f;
+
+    private const float FrontHipHeight = FrontUpperLength + FrontLowerLength + LegClearance;
+    private const float BackHipHeight = BackUpperLength + BackLowerLength + LegClearance;
+
+    // Sitting, the cat rocks back about its shoulders onto its haunches, forelegs straight and tail curled round its
+    // side. Lying, it sinks onto its belly like a sphinx, forelegs stretched out in front and hind legs folded alongside.
+    private const float SitPitch = 0.55f;
+    private const float LieDrop = 0.24f;
+
+    // How each tail segment points at rest, in radians from straight down (negative is back): out of the rump and down
+    // to the ground, then along it.
+    private static readonly float[] SitTail = [-1.25f, -1.57f, -1.57f, -1.57f, -1.57f, -1.57f, -1.57f];
+    private static readonly float[] LieTail = [-0.4f, -1f, -1.57f, -1.57f, -1.57f, -1.57f, -1.57f];
+
     // Hair shades from a little darker than the hide at the root to the hide's own colour at the tip.
     private static readonly Color FurRoot = new(0.8f, 0.8f, 0.8f);
     private static readonly Color FurTip = new(0.98f, 0.98f, 0.98f);
@@ -66,6 +88,7 @@ public partial class SnowLeopard : Animal
     private Node3D _head = null!;
     private Node3D[] _upperLegs = [];
     private Node3D[] _lowerLegs = [];
+    private Node3D[] _paws = [];
     private Node3D[] _tail = [];
     private Node3D[] _ears = [];
     private ShaderMaterial _hair = null!;
@@ -78,18 +101,22 @@ public partial class SnowLeopard : Animal
     {
         Scores = new() { JumpHeight = 10, JumpLength = 10, LandSpeed = 9, WaterSpeed = 3, Agility = 10, Stamina = 7 },
         Abilities = Ability.ClimbTrees,
-        FloatDepth = 0.4f,
-        WadeDepth = 0.25f,
-        MouthDistance = 0.7f,
-        EatReach = 0.5f,
+        FloatDepth = 0.4f * BodyScale,
+        WadeDepth = 0.25f * BodyScale,
+        MouthDistance = 0.7f * BodyScale,
+        EatReach = 0.5f * BodyScale,
         CanGraze = false,
-        BodyRadius = 0.3f,
-        BodyHeight = 0.8f,
-        CameraHeight = 0.75f,
-        CameraDistance = 3.5f,
+        BodyRadius = 0.3f * BodyScale,
+        BodyHeight = 0.8f * BodyScale,
+        CameraHeight = 0.75f * BodyScale,
+        CameraDistance = 3.5f * BodyScale,
     };
 
-    public override void _Ready() => Build();
+    public override void _Ready()
+    {
+        Scale = Vector3.One * BodyScale;
+        Build();
+    }
 
     public override void Animate(float speed, float stride, float eat, float dt)
     {
@@ -108,16 +135,25 @@ public partial class SnowLeopard : Animal
         // first and its strong shoulders take the impact; the hind legs trail and swing down after. The body pivots
         // about the forepaws, so they stay at ground level while the hindquarters rise.
         float tilt = Landing * LandingTilt;
-        _frame.Position = new Vector3(0, bob - drop + LegOffset * Mathf.Sin(tilt), 0);
-        _frame.Rotation = new Vector3(-pitch - tilt + Mathf.Sin(_walkCycle) * run * 0.06f, 0, 0);
+
+        // Sitting tips the body back about the shoulders, so the forelegs stay planted while the rump sinks to the ground.
+        var sitShift = TipAbout(new Vector3(0, FrontHipHeight, -LegOffset), SitPitch);
+        _frame.Position = Pose(new Vector3(0, bob - drop + LegOffset * Mathf.Sin(tilt), 0), sitShift, new Vector3(0, -LieDrop, 0));
+        _frame.Rotation = new Vector3(Pose(-pitch - tilt + Mathf.Sin(_walkCycle) * run * 0.06f, SitPitch, 0f), 0, 0);
 
         float amplitude = Mathf.Lerp(0.4f, 0.85f, run) * stride;
         float frontFold = FoldAngle(drop + LegOffset * Mathf.Sin(pitch), FrontUpperLength + FrontLowerLength);
         float backFold = FoldAngle(drop - LegOffset * Mathf.Sin(pitch), BackUpperLength + BackLowerLength);
 
+        // At rest the hind legs fold right up, far enough to bring the paws under the lowered hips.
+        float sitHip = (new Vector3(0, BackHipHeight, LegOffset).Rotated(Vector3.Right, SitPitch) + sitShift).Y;
+        float sitFold = FoldToReach(_lowerLegs[2].Position, _paws[2].Position, sitHip - LegClearance);
+        float lieFold = FoldToReach(_lowerLegs[2].Position, _paws[2].Position, BackHipHeight - LieDrop - LegClearance);
+
         for (int i = 0; i < 4; i++)
         {
             bool front = i < 2;
+            float side = i % 2 == 0 ? -1f : 1f;
             float phase = _walkCycle + Mathf.Lerp(WalkPhase[i], GallopPhase[i], run);
             float swing = Mathf.Sin(phase) * amplitude;
 
@@ -127,31 +163,44 @@ public partial class SnowLeopard : Animal
             // Forelegs fold with the elbow behind, hind legs with the knee in front. Both are corrected for
             // the body's forward tip so the paws stay under the shoulders and hips.
             // When landing, the forelegs reach straight down to the ground and the hind legs trail, half folded.
+            // Sitting, the forelegs stand straight and the hind legs fold under the haunches. Lying, the elbows rest on
+            // the ground with the forearms stretched out in front, and the hind legs fold alongside the belly.
+            // Every paw lies flat on the ground.
             if (front)
             {
-                _upperLegs[i].Rotation = new Vector3(swing - frontFold + pitch + tilt, 0, 0);
-                _lowerLegs[i].Rotation = new Vector3(-lift + frontFold * 2f, 0, 0);
+                _upperLegs[i].Rotation = new Vector3(Pose(swing - frontFold + pitch + tilt, -SitPitch + 0.05f, 0.6f), 0, 0);
+                _lowerLegs[i].Rotation = new Vector3(Pose(-lift + frontFold * 2f, 0f, 0.97f), 0, 0);
+                _paws[i].Rotation = new Vector3(Pose(0f, 0f, -1.57f), 0, 0);
             }
             else
             {
-                _upperLegs[i].Rotation = new Vector3(swing + backFold + pitch - Landing * 0.4f, 0, 0);
-                _lowerLegs[i].Rotation = new Vector3(lift * 0.7f - backFold * 2f + Landing * 0.6f, 0, 0);
+                _upperLegs[i].Rotation = new Vector3(Pose(swing + backFold + pitch - Landing * 0.4f, sitFold - SitPitch, lieFold), 0,
+                    Pose(0f, side * 0.15f, side * 0.3f));
+                _lowerLegs[i].Rotation = new Vector3(Pose(lift * 0.7f - backFold * 2f + Landing * 0.6f, -sitFold * 2f, -lieFold * 2f), 0, 0);
+                _paws[i].Rotation = new Vector3(Pose(0f, sitFold, lieFold), 0, 0);
             }
         }
 
         // The neck lowers to drink and nods slightly in step, while the head tilts back up so the chin,
         // not the forehead, meets the water.
         // Landing, it raises its head to keep its eyes on the ground ahead rather than the ground below.
-        _neck.Rotation = new Vector3(eat * HeadDownAngle + Mathf.Sin(_walkCycle * 2f) * 0.04f * stride + tilt * 0.7f, 0, 0);
-        _head.Rotation = new Vector3(-eat * HeadDownAngle * 0.5f, 0, 0);
+        // At rest it holds its head up and looks straight ahead, however the body is tipped.
+        _neck.Rotation = new Vector3(Pose(eat * HeadDownAngle + Mathf.Sin(_walkCycle * 2f) * 0.04f * stride + tilt * 0.7f, -SitPitch * 0.6f, 0.1f), 0, 0);
+        _head.Rotation = new Vector3(Pose(-eat * HeadDownAngle * 0.5f, -SitPitch * 0.4f, -0.1f), 0, 0);
 
         // The tail sways slowly, each segment lagging the one above; it streams out straighter at a run.
+        // At rest it lies along the ground and curls round the cat's side, its tip still twitching.
         for (int i = 0; i < _tail.Length; i++)
         {
             float lag = i * 0.5f;
             float sway = Mathf.Sin(_time * 1.1f - lag) * 0.12f + Mathf.Sin(_walkCycle * 0.5f - lag) * 0.1f * stride;
             float lift = i == 0 ? -run * 0.3f : -TailRest[i] * run * 0.7f;
-            _tail[i].Rotation = new Vector3(TailRest[i] + lift + Mathf.Sin(_time * 0.7f - lag) * 0.05f, 0, sway);
+            float curl = i < 2 ? 0f : 0.5f + sway * 0.5f;
+            _tail[i].Rotation = new Vector3(
+                Pose(TailRest[i] + lift + Mathf.Sin(_time * 0.7f - lag) * 0.05f,
+                    i == 0 ? SitTail[0] - SitPitch : SitTail[i] - SitTail[i - 1],
+                    i == 0 ? LieTail[0] : LieTail[i] - LieTail[i - 1]),
+                0, Pose(sway, curl, curl * 0.8f));
         }
 
         // Ears flick now and then.
@@ -208,6 +257,7 @@ public partial class SnowLeopard : Animal
         // columns under heavy shoulders; the hind legs have big muscular thighs and a hock that angles back.
         _upperLegs = new Node3D[4];
         _lowerLegs = new Node3D[4];
+        _paws = new Node3D[4];
         string[] legNames = ["LegFrontLeft", "LegFrontRight", "LegBackLeft", "LegBackRight"];
         for (int i = 0; i < 4; i++)
         {
@@ -219,7 +269,7 @@ public partial class SnowLeopard : Animal
             float kneeRadius = front ? 0.06f : 0.064f;
             var knee = front ? new Vector3(0, -upperLength, 0.01f) : new Vector3(0, -upperLength, 0.06f);
 
-            float hipHeight = upperLength + lowerLength + 0.04f;
+            float hipHeight = upperLength + lowerLength + LegClearance;
             _upperLegs[i] = Pivot(_frame, legNames[i], new Vector3(side * 0.11f, hipHeight, front ? -LegOffset : LegOffset));
             Attach(_upperLegs[i], "Upper", Tube([new Vector3(0, 0.05f, 0), knee], [upperRadius, kneeRadius], 12, spotted, capEnd: false));
             Attach(_upperLegs[i], "UpperFur", Strands(rng, OnSegment(rng, 600, new Vector3(0, 0.05f, 0), knee, upperRadius, kneeRadius),
@@ -241,11 +291,13 @@ public partial class SnowLeopard : Animal
             Attach(_lowerLegs[i], "LowerFur", Strands(rng, OnSegment(rng, 350, Vector3.Zero, ankle, shinRadius, ankleRadius),
                 new Vector3(0, -0.6f, 0.3f), 0.015f, 0.025f, FurRoot, FurTip, _hair, width: 0.016f, colouring: legColour));
 
-            // Big round paws, wide enough to spread the cat's weight on snow, furred all over.
-            var pawPosition = ankle + new Vector3(0, 0.001f, -0.03f);
+            // Big round paws, wide enough to spread the cat's weight on snow, furred all over. They hinge at the ankle
+            // so they can lie flat when the leg is folded or stretched out at rest.
+            _paws[i] = Pivot(_lowerLegs[i], "Foot", ankle);
+            var pawPosition = new Vector3(0, 0.001f, -0.03f);
             var pawRadii = new Vector3(0.062f, 0.036f, 0.076f);
-            Attach(_lowerLegs[i], "Paw", Ellipsoid(pawRadii, 14, 10, spotted), pawPosition);
-            Attach(_lowerLegs[i], "PawFur", Strands(rng, OnShape(rng, u => u * pawRadii + pawPosition, 220, u => u.Y > -0.3f),
+            Attach(_paws[i], "Paw", Ellipsoid(pawRadii, 14, 10, spotted), pawPosition);
+            Attach(_paws[i], "PawFur", Strands(rng, OnShape(rng, u => u * pawRadii + pawPosition, 220, u => u.Y > -0.3f),
                 new Vector3(0, -0.3f, -0.2f), 0.012f, 0.022f, FurRoot, FurTip, _hair, width: 0.014f, colouring: legColour));
         }
 

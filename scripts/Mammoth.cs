@@ -17,9 +17,22 @@ public partial class Mammoth : Animal
     // The neck bends from deep in the shoulders, so a smaller angle than at the jaw brings the head just as low.
     private const float HeadDownAngle = -0.45f;
 
+    private static readonly Vector3 BodyCentre = new(0, 2.15f, 0.1f);
+
+    /// <summary>Top of the forelegs, which the body tips back about to sit so the front feet stay planted.</summary>
+    private static readonly Vector3 Shoulder = new(0, 1.75f, -1.2f);
+
+    // Sitting, the mammoth rocks back onto its rump like a dog, forelegs straight and hind legs stretched out in front.
+    private const float SitPitch = 0.5f;
+
+    // Lying, it rolls onto its side, as elephants do to sleep, its legs stacked and stretched out, its head and trunk on
+    // the ground. The body's centre comes down to about its half-width in coat above the ground.
+    private const float LieHeight = 1.3f;
+
     private static readonly Color HairRoot = new(0.2f, 0.11f, 0.05f);
     private static readonly Color HairTip = new(0.52f, 0.33f, 0.17f);
 
+    private Node3D _frame = null!;
     private Node3D _neck = null!;
     private Node3D _tail = null!;
     private Node3D[] _legs = [];
@@ -54,33 +67,51 @@ public partial class Mammoth : Animal
         _time += dt;
         _walkCycle += speed * dt * 0.9f;
 
-        // Diagonal pairs of legs swing together, like a real quadruped's walk.
-        float swing = Mathf.Sin(_walkCycle) * stride * 0.5f;
-        _legs[0].Rotation = new Vector3(swing, 0, 0);
-        _legs[3].Rotation = new Vector3(swing, 0, 0);
-        _legs[1].Rotation = new Vector3(-swing, 0, 0);
-        _legs[2].Rotation = new Vector3(-swing, 0, 0);
+        // Sitting tips the body back about the shoulders; lying rolls it onto its left side. Either way the frame moves
+        // so the body's centre ends up where the pose puts it, rather than swinging round the frame's origin.
+        float pitch = Pose(0f, SitPitch, 0f);
+        float roll = Pose(0f, 0f, Mathf.Pi / 2f);
+        var basis = Basis.FromEuler(new Vector3(pitch, 0, roll));
+        var sitCentre = BodyCentre.Rotated(Vector3.Right, SitPitch) + TipAbout(Shoulder, SitPitch);
+        var centre = Pose(BodyCentre, sitCentre, new Vector3(0, LieHeight, BodyCentre.Z));
 
         // The body rises a little on each step.
-        Position = new Vector3(0, Mathf.Abs(Mathf.Sin(_walkCycle)) * 0.06f * stride, 0);
+        _frame.Position = centre - basis * BodyCentre + Vector3.Up * Mathf.Abs(Mathf.Sin(_walkCycle)) * 0.06f * stride;
+        _frame.Rotation = new Vector3(pitch, 0, roll);
 
-        // The head dips to graze and nods gently in step.
-        _neck.Rotation = new Vector3(eat * HeadDownAngle + Mathf.Sin(_walkCycle * 2f) * 0.03f * stride, 0, 0);
+        // Diagonal pairs of legs swing together, like a real quadruped's walk. Sitting, the forelegs stand straight
+        // and the hind legs lie along the ground in front; lying, the legs stretch out a little fore and aft, the
+        // upper pair sagging onto the lower, whose feet rest on the ground.
+        float swing = Mathf.Sin(_walkCycle) * stride * 0.5f;
+        float front = Pose(0f, -SitPitch, -0.2f);
+        float back = Pose(0f, 1.5f - SitPitch, 0.25f);
+        float under = Pose(0f, 0f, -0.2f);
+        float over = Pose(0f, 0f, -0.4f);
+        _legs[0].Rotation = new Vector3(swing + front, 0, under);
+        _legs[3].Rotation = new Vector3(swing + back, 0, over);
+        _legs[1].Rotation = new Vector3(-swing + front, 0, over);
+        _legs[2].Rotation = new Vector3(-swing + back, 0, under);
+
+        // The head dips to graze and nods gently in step. Sitting, it tips forward to look ahead; lying, it rests on
+        // the ground.
+        _neck.Rotation = new Vector3(eat * HeadDownAngle + Mathf.Sin(_walkCycle * 2f) * 0.03f * stride + Pose(0f, -SitPitch * 0.7f, 0f),
+            Pose(0f, 0f, 0.3f), 0);
 
         // The trunk swings side to side, lazily when idle and harder in step, each segment lagging the one
         // above like a chain of pendulums. While grazing it curls back under the head towards the mouth.
+        // Lying, it flops down onto the ground, still stirring.
         for (int i = 0; i < _trunk.Length; i++)
         {
             float lag = i * 0.6f;
             float sway = Mathf.Sin(_time * 1.3f - lag) * 0.1f + Mathf.Sin(_walkCycle - 0.3f - lag) * 0.22f * stride;
             float hang = i == 0 ? 0.45f : -0.12f;
             float curl = eat * (i == 0 ? 0.3f : -0.5f);
-            _trunk[i].Rotation = new Vector3(hang + curl, 0, sway);
+            _trunk[i].Rotation = new Vector3(hang + curl, 0, sway + Pose(0f, 0f, i == 0 ? -1.1f : -0.15f));
         }
 
-        // The tail hangs off the rump and swishes, more so when walking.
+        // The tail hangs off the rump and swishes, more so when walking. At rest it lies out along the ground.
         float swish = Mathf.Sin(_time * 2.1f) * 0.2f + Mathf.Sin(_walkCycle * 0.5f) * 0.25f * stride;
-        _tail.Rotation = new Vector3(-0.7f + Mathf.Sin(_time * 0.9f) * 0.1f, 0, swish);
+        _tail.Rotation = new Vector3(Pose(-0.7f, -1.4f - SitPitch, -0.7f) + Mathf.Sin(_time * 0.9f) * 0.1f, 0, swish + Pose(0f, 0f, -1.1f));
 
         // Ears lie back against the head and flap now and then.
         float flap = Mathf.Sin(_time * 1.7f) * 0.1f + Mathf.Sin(_walkCycle * 2f) * 0.08f * stride;
@@ -101,15 +132,18 @@ public partial class Mammoth : Animal
 
         // Body: a barrel with a shoulder hump, long guard hairs hanging from the flanks and belly
         // and a shorter coat lying back over the spine.
-        var bodyPosition = new Vector3(0, 2.15f, 0.1f);
-        var body = Pivot(this, "Body", bodyPosition);
+        // Everything hangs off a frame that can bob, tip back to sit and roll over to lie, without disturbing the yaw Player sets.
+        _frame = Pivot(this, "Frame", Vector3.Zero);
+
+        var bodyPosition = BodyCentre;
+        var body = Pivot(_frame, "Body", bodyPosition);
         Attach(body, "Hide", Ellipsoid(BodyShape, 40, 24, hide));
         Attach(body, "Skirt", Hair(rng, OnShape(rng, BodyShape, 2200, u => u.Y < 0.45f), new Vector3(0, -1f, 0), 0.5f, 0.9f));
         Attach(body, "Coat", Hair(rng, OnShape(rng, BodyShape, 1000, u => u.Y >= 0.45f), new Vector3(0, -0.7f, 0.7f), 0.35f, 0.55f));
 
         // Head on a neck that bends at the shoulders to graze. The pivot sits inside the body, so the base of
         // the neck stays buried in the shoulders however far the head dips, and only the head end swings down.
-        _neck = Pivot(this, "Neck", new Vector3(0, 2.7f, -1f));
+        _neck = Pivot(_frame, "Neck", new Vector3(0, 2.7f, -1f));
         var throatEnd = new Vector3(0, 0.35f, -1.25f);
         Attach(_neck, "Throat", Tube([throatEnd, Vector3.Zero], [0.6f, 0.8f], 14, hide, capEnd: true));
         Attach(_neck, "ThroatHair", Hair(rng, OnSegment(rng, 500, Vector3.Zero, throatEnd, 0.8f, 0.6f),
@@ -160,7 +194,7 @@ public partial class Mammoth : Animal
         {
             float side = i % 2 == 0 ? -1f : 1f;
             float front = i < 2 ? -1.2f : 1.25f;
-            _legs[i] = Pivot(this, legNames[i], new Vector3(side * 0.68f, 1.75f, front));
+            _legs[i] = Pivot(_frame, legNames[i], new Vector3(side * 0.68f, 1.75f, front));
             Attach(_legs[i], "Column", Tube(
                 [Vector3.Zero, new Vector3(0, -0.8f, 0), new Vector3(0, -1.55f, 0), new Vector3(0, -1.75f, 0)],
                 [0.45f, 0.36f, 0.33f, 0.37f], 14, hide, capEnd: true));
@@ -172,7 +206,7 @@ public partial class Mammoth : Animal
 
         // Tail rooted on the rump (a point on the body surface, just below its top rear edge), with a tuft of hair at the end.
         var tailRoot = bodyPosition + BodyShape(new Vector3(0, 0.45f, 0.89f).Normalized()) - Vector3.Up * 0.05f;
-        _tail = Pivot(this, "Tail", tailRoot);
+        _tail = Pivot(_frame, "Tail", tailRoot);
         Attach(_tail, "Joint", new SphereMesh { Radius = 0.14f, Height = 0.28f, Material = hide });
         Attach(_tail, "Tail", Tube(
             [Vector3.Zero, new Vector3(0, -0.6f, 0.08f), new Vector3(0, -1.2f, 0.12f)], [0.12f, 0.08f, 0.045f], 8, hide, capEnd: true));

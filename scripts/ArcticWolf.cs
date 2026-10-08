@@ -15,7 +15,8 @@ public partial class ArcticWolf : Animal
 {
     private const int Seed = 23;
     private const int TailSegments = 4;
-    private const float TailSegmentLength = 0.11f;
+    // A long, full brush that hangs nearly to the hocks.
+    private const float TailSegmentLength = 0.16f;
     private const float HeadDownAngle = -1.6f;
 
     /// <summary>How much bigger the whole head (skull, face, ears and fur) is drawn than it is modelled.</summary>
@@ -38,6 +39,22 @@ public partial class ArcticWolf : Animal
     private const float BackUpperLength = 0.29f;
     private const float BackLowerLength = 0.23f;
 
+    /// <summary>Gap between the bottom of a straight leg and the ground, which the paw fills.</summary>
+    private const float LegClearance = 0.03f;
+
+    private const float FrontHipHeight = FrontUpperLength + FrontLowerLength + LegClearance;
+    private const float BackHipHeight = BackUpperLength + BackLowerLength + LegClearance;
+
+    // Sitting, the wolf rocks back about its shoulders onto its haunches with its forelegs straight, sitting up taller
+    // than a cat. Lying, it sinks onto its belly with its forelegs stretched out in front and hind legs folded alongside.
+    private const float SitPitch = 0.65f;
+    private const float LieDrop = 0.36f;
+
+    // How each tail segment points at rest, in radians from straight down (negative is back): out of the rump and down
+    // to the ground, then along it.
+    private static readonly float[] SitTail = [-0.6f, -1.3f, -1.57f, -1.57f];
+    private static readonly float[] LieTail = [-0.15f, -0.7f, -1.4f, -1.57f];
+
     // A white coat with a faint cream cast along the back, shading a little greyer at the hair roots.
     private static readonly Color FurRoot = new(0.84f, 0.84f, 0.82f);
     private static readonly Color FurTip = Colors.White;
@@ -57,6 +74,7 @@ public partial class ArcticWolf : Animal
     private Node3D _head = null!;
     private Node3D[] _upperLegs = [];
     private Node3D[] _lowerLegs = [];
+    private Node3D[] _paws = [];
     private Node3D[] _tail = [];
     private Node3D[] _ears = [];
     private ShaderMaterial _hair = null!;
@@ -94,43 +112,66 @@ public partial class ArcticWolf : Animal
         float drop = eat * CrouchDrop;
         float pitch = eat * CrouchPitch;
         float bob = Mathf.Abs(Mathf.Sin(_walkCycle)) * stride * Mathf.Lerp(0.015f, 0.05f, run);
-        _frame.Position = new Vector3(0, bob - drop, 0);
-        _frame.Rotation = new Vector3(-pitch + Mathf.Sin(_walkCycle) * run * 0.05f, 0, 0);
+        // Sitting tips the body back about the shoulders, so the forelegs stay planted while the rump sinks to the ground.
+        var sitShift = TipAbout(new Vector3(0, FrontHipHeight, -LegOffset), SitPitch);
+        _frame.Position = Pose(new Vector3(0, bob - drop, 0), sitShift, new Vector3(0, -LieDrop, 0));
+        _frame.Rotation = new Vector3(Pose(-pitch + Mathf.Sin(_walkCycle) * run * 0.05f, SitPitch, 0f), 0, 0);
 
         float amplitude = Mathf.Lerp(0.38f, 0.8f, run) * stride;
         float frontFold = FoldAngle(drop + LegOffset * Mathf.Sin(pitch), FrontUpperLength + FrontLowerLength);
         float backFold = FoldAngle(drop - LegOffset * Mathf.Sin(pitch), BackUpperLength + BackLowerLength);
 
+        // At rest the hind legs fold right up, far enough to bring the paws under the lowered hips.
+        float sitHip = (new Vector3(0, BackHipHeight, LegOffset).Rotated(Vector3.Right, SitPitch) + sitShift).Y;
+        float sitFold = FoldToReach(_lowerLegs[2].Position, _paws[2].Position, sitHip - LegClearance);
+        float lieFold = FoldToReach(_lowerLegs[2].Position, _paws[2].Position, BackHipHeight - LieDrop - LegClearance);
+
+        // Lying, the forelegs reach forward from the shoulder to rest the elbows on the ground, forearms out in front.
+        float reach = Mathf.Acos(Mathf.Clamp((FrontHipHeight - LieDrop - LegClearance) / FrontUpperLength, -1f, 1f));
+
         for (int i = 0; i < 4; i++)
         {
+            float side = i % 2 == 0 ? -1f : 1f;
             float phase = _walkCycle + Mathf.Lerp(WalkPhase[i], GallopPhase[i], run);
             float swing = Mathf.Sin(phase) * amplitude;
             float lift = Mathf.Max(0f, Mathf.Cos(phase)) * stride * Mathf.Lerp(0.7f, 1.2f, run);
 
             // Forelegs fold with the elbow behind, hind legs with the hock behind and the knee in front.
+            // Sitting, the forelegs stand straight and the hind legs fold under the haunches; lying, the hind legs fold
+            // alongside the belly. Every paw lies flat on the ground.
             if (i < 2)
             {
-                _upperLegs[i].Rotation = new Vector3(swing - frontFold + pitch, 0, 0);
-                _lowerLegs[i].Rotation = new Vector3(-lift + frontFold * 2f, 0, 0);
+                _upperLegs[i].Rotation = new Vector3(Pose(swing - frontFold + pitch, -SitPitch + 0.05f, reach), 0, 0);
+                _lowerLegs[i].Rotation = new Vector3(Pose(-lift + frontFold * 2f, 0f, Mathf.Pi / 2f - reach), 0, 0);
+                _paws[i].Rotation = new Vector3(Pose(0f, 0f, -Mathf.Pi / 2f), 0, 0);
             }
             else
             {
-                _upperLegs[i].Rotation = new Vector3(swing + backFold + pitch, 0, 0);
-                _lowerLegs[i].Rotation = new Vector3(lift * 0.7f - backFold * 2f, 0, 0);
+                _upperLegs[i].Rotation = new Vector3(Pose(swing + backFold + pitch, sitFold - SitPitch, lieFold), 0,
+                    Pose(0f, side * 0.12f, side * 0.3f));
+                _lowerLegs[i].Rotation = new Vector3(Pose(lift * 0.7f - backFold * 2f, -sitFold * 2f, -lieFold * 2f), 0, 0);
+                _paws[i].Rotation = new Vector3(Pose(0f, sitFold, lieFold), 0, 0);
             }
         }
 
-        // Wolves travel with the head carried low and level, and drop it right down to drink.
-        _neck.Rotation = new Vector3(eat * HeadDownAngle - run * 0.25f + Mathf.Sin(_walkCycle * 2f) * 0.03f * stride, 0, 0);
-        _head.Rotation = new Vector3(-eat * HeadDownAngle * 0.45f + run * 0.2f, 0, 0);
+        // Wolves travel with the head carried low and level, and drop it right down to drink. At rest the head is held
+        // up, looking ahead, however the body is tipped.
+        _neck.Rotation = new Vector3(Pose(eat * HeadDownAngle - run * 0.25f + Mathf.Sin(_walkCycle * 2f) * 0.03f * stride,
+            -SitPitch * 0.6f, 0.1f), 0, 0);
+        _head.Rotation = new Vector3(Pose(-eat * HeadDownAngle * 0.45f + run * 0.2f, -SitPitch * 0.4f, -0.1f), 0, 0);
 
-        // The tail hangs and sways, lifting out behind at a run.
+        // The tail hangs and sways, lifting out behind at a run. At rest it lies along the ground, sweeping gently.
         for (int i = 0; i < _tail.Length; i++)
         {
             float lag = i * 0.5f;
             float sway = Mathf.Sin(_time * 1.2f - lag) * 0.1f + Mathf.Sin(_walkCycle * 0.5f - lag) * 0.12f * stride;
             float lift = i == 0 ? -run * 0.5f : -TailRest[i] * run * 0.8f;
-            _tail[i].Rotation = new Vector3(TailRest[i] + lift, 0, sway);
+            float curl = i < 2 ? 0f : 0.3f + sway;
+            _tail[i].Rotation = new Vector3(
+                Pose(TailRest[i] + lift,
+                    i == 0 ? SitTail[0] - SitPitch : SitTail[i] - SitTail[i - 1],
+                    i == 0 ? LieTail[0] : LieTail[i] - LieTail[i - 1]),
+                0, Pose(sway, curl, curl));
         }
 
         float twitch = Mathf.Pow(Mathf.Max(0f, Mathf.Sin(_time * 0.7f)), 12f) * 0.35f;
@@ -173,6 +214,7 @@ public partial class ArcticWolf : Animal
 
         _upperLegs = new Node3D[4];
         _lowerLegs = new Node3D[4];
+        _paws = new Node3D[4];
         string[] legNames = ["LegFrontLeft", "LegFrontRight", "LegBackLeft", "LegBackRight"];
         var pad = new StandardMaterial3D { AlbedoColor = new Color(0.12f, 0.1f, 0.1f), Roughness = 0.8f };
         for (int i = 0; i < 4; i++)
@@ -185,7 +227,7 @@ public partial class ArcticWolf : Animal
             float kneeRadius = front ? 0.042f : 0.045f;
             var knee = front ? new Vector3(0, -upperLength, 0.01f) : new Vector3(0, -upperLength, -0.05f);
 
-            float hipHeight = upperLength + lowerLength + 0.03f;
+            float hipHeight = upperLength + lowerLength + LegClearance;
             _upperLegs[i] = Pivot(_frame, legNames[i], new Vector3(side * 0.1f, hipHeight, front ? -LegOffset : LegOffset));
             Attach(_upperLegs[i], "Upper", Tube([new Vector3(0, 0.06f, 0), knee], [upperRadius, kneeRadius], 12, coat, capEnd: false));
             Attach(_upperLegs[i], "UpperFur", Strands(rng, OnSegment(rng, 450, new Vector3(0, 0.06f, 0), knee, upperRadius, kneeRadius),
@@ -207,14 +249,16 @@ public partial class ArcticWolf : Animal
                 new Vector3(0, -0.6f, 0.3f), 0.015f, 0.03f, FurRoot, FurTip, _hair, width: 0.014f, colouring: coatColour));
 
             // Neat oval paws, furred between the toes against the snow, with dark pads and claws peeping out in front.
-            var pawPosition = ankle + new Vector3(0, 0.002f, -0.035f);
+            // They hinge at the ankle so they can lie flat when the leg is folded or stretched out at rest.
+            _paws[i] = Pivot(_lowerLegs[i], "Foot", ankle);
+            var pawPosition = new Vector3(0, 0.002f, -0.035f);
             var pawRadii = new Vector3(0.042f, 0.028f, 0.058f);
-            Attach(_lowerLegs[i], "Paw", Ellipsoid(pawRadii, 14, 10, coat), pawPosition);
-            Attach(_lowerLegs[i], "Pad", Ellipsoid(new Vector3(0.03f, 0.008f, 0.04f), 10, 6, pad), pawPosition + new Vector3(0, -0.022f, 0));
-            Attach(_lowerLegs[i], "PawFur", Strands(rng, OnShape(rng, u => u * pawRadii + pawPosition, 160, u => u.Y > -0.2f),
+            Attach(_paws[i], "Paw", Ellipsoid(pawRadii, 14, 10, coat), pawPosition);
+            Attach(_paws[i], "Pad", Ellipsoid(new Vector3(0.03f, 0.008f, 0.04f), 10, 6, pad), pawPosition + new Vector3(0, -0.022f, 0));
+            Attach(_paws[i], "PawFur", Strands(rng, OnShape(rng, u => u * pawRadii + pawPosition, 160, u => u.Y > -0.2f),
                 new Vector3(0, -0.3f, -0.3f), 0.012f, 0.022f, FurRoot, FurTip, _hair, width: 0.014f, colouring: coatColour));
             foreach (float toe in new[] { -0.6f, -0.2f, 0.2f, 0.6f })
-                Attach(_lowerLegs[i], "Claw", Ellipsoid(new Vector3(0.005f, 0.005f, 0.012f), 6, 4, pad),
+                Attach(_paws[i], "Claw", Ellipsoid(new Vector3(0.005f, 0.005f, 0.012f), 6, 4, pad),
                     pawPosition + new Vector3(toe * pawRadii.X, -0.012f, -pawRadii.Z * 0.95f));
         }
 
@@ -230,7 +274,7 @@ public partial class ArcticWolf : Animal
             if (i > 0)
                 Attach(_tail[i], "Joint", new SphereMesh { Radius = top, Height = top * 2f, Material = coat });
             Attach(_tail[i], "Segment", Tube([Vector3.Zero, Vector3.Down * TailSegmentLength], [top, bottom], 10, coat, capEnd: i == TailSegments - 1));
-            Attach(_tail[i], "Brush", Strands(rng, OnTube(rng, 380, bottom * 0.9f, 0f, -TailSegmentLength), new Vector3(0, -0.8f, 0),
+            Attach(_tail[i], "Brush", Strands(rng, OnTube(rng, 550, bottom * 0.9f, 0f, -TailSegmentLength), new Vector3(0, -0.8f, 0),
                 0.07f, 0.11f, FurRoot, FurTip, _hair, width: 0.026f, colouring: coatColour));
             parent = _tail[i];
             position = Vector3.Down * TailSegmentLength;

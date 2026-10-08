@@ -22,6 +22,15 @@ public partial class BaldEagle : Animal
     /// <summary>How far the body is tipped up from level when perched or walking.</summary>
     private const float StandingPitch = 0.85f;
 
+    /// <summary>Height of the middle of the foot above the ground; the legs reach from the hips down to it.</summary>
+    private const float FootHeight = 0.015f;
+
+    // How far the body is tipped up from level, and how high the hips are, sitting and lying.
+    private const float SitPitch = 0.65f;
+    private const float SitHipHeight = 0.15f;
+    private const float LiePitch = 0.25f;
+    private const float LieHipHeight = 0.08f;
+
     private const float ArmLength = 0.42f;
     private const float HandLength = 0.5f;
 
@@ -38,6 +47,8 @@ public partial class BaldEagle : Animal
     private Node3D[] _arms = [];
     private Node3D[] _hands = [];
     private Node3D[] _legs = [];
+    private Node3D[] _shanks = [];
+    private Node3D[] _feet = [];
     private ShaderMaterial _hair = null!;
     private float _walkCycle;
     private float _wingCycle;
@@ -84,23 +95,32 @@ public partial class BaldEagle : Animal
         _frame.Position = new Vector3(0, Mathf.Abs(step) * 0.02f, 0);
         _frame.Rotation = new Vector3(0, 0, step * 0.12f);
 
-        // Upright when standing and tipping forward to drink; level in flight.
-        float pitch = Mathf.Lerp(StandingPitch - eat * 0.75f, 0f, air);
+        // Upright when standing and tipping forward to drink; level in flight. Sitting, the eagle settles low on its
+        // folded legs, leaning forward a little; lying, it rests its breast on the ground, nearly level, as on a nest.
+        float pitch = Pose(Mathf.Lerp(StandingPitch - eat * 0.75f, 0f, air), SitPitch, LiePitch);
+        float hips = Pose(HipHeight, SitHipHeight, LieHipHeight);
+        _body.Position = new Vector3(0, hips, 0);
         _body.Rotation = new Vector3(pitch, 0, 0);
+
+        // The ankle bends backwards to lower the hips, and the foot stays flat.
+        float fold = FoldToReach(_shanks[0].Position, _feet[0].Position, hips - FootHeight);
 
         for (int i = 0; i < 2; i++)
         {
             float swing = (i == 0 ? step : -step) * 0.4f;
             // Legs hang straight down under an upright body, and trail back under the tail in flight.
-            _legs[i].Rotation = new Vector3(Mathf.Lerp(-pitch + swing, -1.35f, air), 0, 0);
+            _legs[i].Rotation = new Vector3(Mathf.Lerp(-pitch + swing, -1.35f, air) - fold, 0, 0);
+            _shanks[i].Rotation = new Vector3(fold * 2f, 0, 0);
+            _feet[i].Rotation = new Vector3(-fold, 0, 0);
         }
 
         // The head stays level whatever the body does, and dips to drink.
         _neck.Rotation = new Vector3(-pitch * 0.6f - eat * 0.7f, 0, 0);
         _head.Rotation = new Vector3(-pitch * 0.4f - eat * 0.4f, 0, 0);
 
-        // The tail fans out wide in flight, to steer and brake, and tips down a little at rest.
-        _tail.Rotation = new Vector3(Mathf.Lerp(0.15f, -0.05f, air), 0, 0);
+        // The tail fans out wide in flight, to steer and brake, and tips down a little at rest. Sitting or lying, it
+        // lifts to lie out behind, just clear of the ground.
+        _tail.Rotation = new Vector3(Pose(Mathf.Lerp(0.15f, -0.05f, air), -0.5f, -0.1f), 0, 0);
         float fan = Mathf.Lerp(0.45f, 1f, air * (1f - _fold));
         for (int i = 0; i < _tailFeathers.Length; i++)
         {
@@ -184,6 +204,8 @@ public partial class BaldEagle : Animal
 
         // Legs: shaggy brown "trousers" over the thighs, then bare yellow scaly legs and big yellow feet with black talons.
         _legs = new Node3D[2];
+        _shanks = new Node3D[2];
+        _feet = new Node3D[2];
         for (int i = 0; i < 2; i++)
         {
             float side = i == 0 ? -1f : 1f;
@@ -192,17 +214,21 @@ public partial class BaldEagle : Animal
             Attach(_legs[i], "Trousers", Ellipsoid(thigh, 12, 10, plumage), new Vector3(0, -0.05f, 0));
             Attach(_legs[i], "TrouserFeathers", Strands(rng, OnShape(rng, u => u * thigh + new Vector3(0, -0.05f, 0), 220, _ => true),
                 new Vector3(0, -1f, 0), 0.03f, 0.05f, Colors.White, Colors.White, _hair, width: 0.022f, colouring: plumageColour));
-            Attach(_legs[i], "Shank", Tube([new Vector3(0, -0.1f, 0), new Vector3(0, -0.225f, 0)], [0.016f, 0.014f], 8, yellow, capEnd: false));
+            // The bare leg hinges below the trousers at the ankle, which bends backwards, so the eagle can settle down
+            // onto its folded legs; the foot hinges again to stay flat on the ground.
+            _shanks[i] = Pivot(_legs[i], "Shank", new Vector3(0, -0.1f, 0));
+            Attach(_shanks[i], "Shank", Tube([Vector3.Zero, new Vector3(0, -0.125f, 0)], [0.016f, 0.014f], 8, yellow, capEnd: false));
 
-            var foot = new Vector3(0, -0.23f, 0);
-            Attach(_legs[i], "Ball", new SphereMesh { Radius = 0.018f, Height = 0.036f, Material = yellow }, foot);
+            _feet[i] = Pivot(_shanks[i], "Foot", new Vector3(0, -0.13f, 0));
+            var foot = Vector3.Zero;
+            Attach(_feet[i], "Ball", new SphereMesh { Radius = 0.018f, Height = 0.036f, Material = yellow }, foot);
             foreach (float angle in new[] { -0.45f, 0f, 0.45f, Mathf.Pi })
             {
                 // Three toes spread forward and one points back, each ending in a hooked black talon.
                 var dir = new Vector3(Mathf.Sin(angle), 0, -Mathf.Cos(angle));
                 var tip = foot + dir * (angle == Mathf.Pi ? 0.045f : 0.06f) + Vector3.Down * 0.006f;
-                Attach(_legs[i], "Toe", Tube([foot, tip], [0.011f, 0.008f], 8, yellow, capEnd: true));
-                Attach(_legs[i], "Talon", Tube([tip, tip + dir * 0.014f + Vector3.Up * 0.002f, tip + dir * 0.022f + Vector3.Down * 0.01f],
+                Attach(_feet[i], "Toe", Tube([foot, tip], [0.011f, 0.008f], 8, yellow, capEnd: true));
+                Attach(_feet[i], "Talon", Tube([tip, tip + dir * 0.014f + Vector3.Up * 0.002f, tip + dir * 0.022f + Vector3.Down * 0.01f],
                     [0.006f, 0.004f, 0.001f], 6, talon, capEnd: true));
             }
         }

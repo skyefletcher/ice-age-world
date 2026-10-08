@@ -85,6 +85,7 @@ public partial class Herd : Node3D
             member.Velocity = Vector3.Zero;
             member.Yaw = yaw;
             member.Animal.Rotation = new Vector3(0f, yaw, 0f);
+            member.Animal.Sitting = member.Animal.Lying = 0f;
         }
     }
 
@@ -124,6 +125,13 @@ public partial class Herd : Node3D
         // Stroll when nearly there, and run flat out when well behind.
         float speed = distance < 0.8f ? 0f : Mathf.Min(stats.SprintSpeed, (distance - 0.8f) * 1.5f);
         var wanted = distance > 0.01f ? toTarget / distance * speed : Vector3.Zero;
+
+        // Once they've stood about for a while, members sit or lie down when the leader does, one after another rather
+        // than all at once, and get up again with it. A member stays put until it is back on its feet.
+        var posture = member.StillTime > 1f + index * 0.7f ? Leader.Posture : Posture.Standing;
+        member.Animal.Settle(posture, Leader.PostureChangeSeconds, dt);
+        if (member.Animal.IsResting)
+            wanted = Vector3.Zero;
 
         // Keep a body's length from the others.
         foreach (var other in _members)
@@ -172,7 +180,7 @@ public partial class Herd : Node3D
     private float Graze(Member member, float moving, bool swimming, float dt)
     {
         member.StillTime = moving < 0.3f && !swimming ? member.StillTime + dt : 0f;
-        if (!member.Animal.Stats.CanGraze || member.StillTime < 1.5f)
+        if (!member.Animal.Stats.CanGraze || member.StillTime < 1.5f || member.Animal.IsResting)
         {
             member.GrazeTimer = 0f;
             return 0f;

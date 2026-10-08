@@ -41,6 +41,9 @@ public enum Ability
     Herd = 8,
 }
 
+/// <summary>How an animal is resting, if at all.</summary>
+public enum Posture { Standing, Sitting, Lying }
+
 /// <summary>How an animal moves, feeds and fills the player's body and camera, so <see cref="Player"/> can drive any of them.</summary>
 public sealed record AnimalStats
 {
@@ -146,12 +149,61 @@ public abstract partial class Animal : Node3D
     /// <summary>0..1 how far a flying animal has tucked its wings in to dive.</summary>
     public float Dive { get; set; }
 
+    /// <summary>0..1 how far the animal has sat down, eased in as it settles and out as it gets up.</summary>
+    public float Sitting { get; set; }
+
+    /// <summary>0..1 how far the animal has lain down to rest, eased in as it settles and out as it gets up.</summary>
+    public float Lying { get; set; }
+
+    /// <summary>True while the animal is sitting or lying, or still getting up.</summary>
+    public bool IsResting => Sitting > 0f || Lying > 0f;
+
+    /// <summary>Eases the sitting and lying poses towards <paramref name="posture"/>, taking <paramref name="seconds"/> to settle or get up.</summary>
+    public void Settle(Posture posture, float seconds, float dt)
+    {
+        Sitting = Mathf.MoveToward(Sitting, posture == Posture.Sitting ? 1f : 0f, dt / seconds);
+        Lying = Mathf.MoveToward(Lying, posture == Posture.Lying ? 1f : 0f, dt / seconds);
+    }
+
+    /// <summary>Blends a joint angle or offset from its standing value towards its sitting and lying ones, easing in and out.</summary>
+    protected float Pose(float standing, float sitting, float lying) =>
+        Mathf.Lerp(Mathf.Lerp(standing, sitting, Mathf.SmoothStep(0f, 1f, Sitting)), lying, Mathf.SmoothStep(0f, 1f, Lying));
+
+    protected Vector3 Pose(Vector3 standing, Vector3 sitting, Vector3 lying) =>
+        standing.Lerp(sitting, Mathf.SmoothStep(0f, 1f, Sitting)).Lerp(lying, Mathf.SmoothStep(0f, 1f, Lying));
+
+    /// <summary>
+    /// Where a frame must move so that, tipped nose-up by <paramref name="pitch"/>, the point <paramref name="anchor"/>
+    /// in it stays where it was: e.g. the shoulders, so the forelegs stay planted while the hindquarters sink to sit.
+    /// </summary>
+    protected static Vector3 TipAbout(Vector3 anchor, float pitch) => anchor - anchor.Rotated(Vector3.Right, pitch);
+
     /// <summary>
     /// How far each joint of a two-segment leg of the given length must bend for the leg to reach
     /// <paramref name="shorten"/> less far, with the foot staying under the hip.
     /// </summary>
     protected static float FoldAngle(float shorten, float length) =>
         Mathf.Acos(Mathf.Clamp(1f - Mathf.Max(0f, shorten) / length, -1f, 1f));
+
+    /// <summary>
+    /// How far to fold a two-segment leg (the upper segment forward by the angle, the lower back by twice it) for the
+    /// ankle to end up <paramref name="drop"/> below the hip. Unlike <see cref="FoldAngle"/> it takes the knee and the
+    /// ankle (each relative to the joint above) as built, kinks and all, so it stays true even when folded right up.
+    /// </summary>
+    protected static float FoldToReach(Vector3 knee, Vector3 ankle, float drop)
+    {
+        float straight = 0f, folded = 2.5f;
+        for (int i = 0; i < 20; i++)
+        {
+            float fold = (straight + folded) / 2f;
+            float reach = -(knee.Rotated(Vector3.Right, fold) + ankle.Rotated(Vector3.Right, -fold)).Y;
+            if (reach > drop)
+                straight = fold;
+            else
+                folded = fold;
+        }
+        return (straight + folded) / 2f;
+    }
 
     protected static ShaderMaterial HairMaterial() => new() { Shader = GD.Load<Shader>("res://shaders/fur.gdshader") };
 

@@ -21,6 +21,14 @@ public partial class SeaOtter : Animal
     /// <summary>Below this speed through the water the otter rolls over and floats on its back.</summary>
     private const float FloatSpeed = 1.2f;
 
+    // Sitting, the otter rears up on its haunches with its forepaws held to its chest, its tail out behind on the
+    // ground. The body tips back about its rump, so its middle rises.
+    private const float SitPitch = 1.3f;
+    private const float SitHeight = 0.38f;
+
+    /// <summary>Lying, the otter rolls onto its back as it does to float, and its middle sinks to just clear the ground.</summary>
+    private const float LieHeight = 0.14f;
+
     private static readonly Color FurRoot = new(0.75f, 0.75f, 0.75f);
     private static readonly Color FurTip = new(1.05f, 1.05f, 1.05f);
     private static readonly Color Grizzle = new(0.72f, 0.66f, 0.56f);
@@ -84,20 +92,37 @@ public partial class SeaOtter : Animal
         _walkCycle += Mathf.Sqrt(speed) * 5f * dt;
         float arch = Mathf.Sin(_walkCycle) * stride;
 
-        _frame.Position = new Vector3(0, SpineHeight + Mathf.Abs(Mathf.Sin(_walkCycle)) * 0.03f * stride, 0);
-        _frame.Rotation = new Vector3(arch * 0.12f - eat * 0.15f, 0, 0);
+        _frame.Position = Pose(new Vector3(0, SpineHeight + Mathf.Abs(Mathf.Sin(_walkCycle)) * 0.03f * stride, 0),
+            new Vector3(0, SitHeight, 0), new Vector3(0, LieHeight, 0));
+        _frame.Rotation = new Vector3(Pose(arch * 0.12f - eat * 0.15f, SitPitch, 0f), 0, Pose(0f, 0f, Mathf.Pi));
 
         for (int i = 0; i < 4; i++)
         {
             float phase = _walkCycle + BoundPhase[i];
             float swing = Mathf.Sin(phase) * 0.6f * stride;
-            _legs[i].Rotation = new Vector3(swing, 0, 0);
             // Flippers stay flat on the ground, peeling up at the heel as the leg swings back.
-            _feet[i].Rotation = new Vector3(-swing + Mathf.Max(0f, -Mathf.Cos(phase)) * 0.4f * stride, 0, 0);
+            float peel = -swing + Mathf.Max(0f, -Mathf.Cos(phase)) * 0.4f * stride;
+
+            // Sitting up, the forepaws are held curled against the chest and the hind legs reach down to the ground
+            // a little in front, flippers flat. Lying on its back, it holds its paws and feet up as it does afloat.
+            if (i < 2)
+            {
+                _legs[i].Rotation = new Vector3(Pose(swing, -0.5f, 1.3f), 0, 0);
+                _feet[i].Rotation = new Vector3(Pose(peel, 0.8f, -0.8f), 0, 0);
+            }
+            else
+            {
+                _legs[i].Rotation = new Vector3(Pose(swing, 0.3f - SitPitch, -0.4f), 0, 0);
+                _feet[i].Rotation = new Vector3(Pose(peel, -0.3f, 0.3f + Mathf.Sin(_time * 1.3f + i) * 0.1f), 0, 0);
+            }
         }
 
-        _neck.Rotation = new Vector3(eat * -0.7f + Mathf.Sin(_walkCycle * 2f) * 0.05f * stride, 0, 0);
+        // Sitting up, it tips its head forward to look about; on its back, it tucks its chin in to lift its head.
+        _neck.Rotation = new Vector3(Pose(eat * -0.7f + Mathf.Sin(_walkCycle * 2f) * 0.05f * stride, -SitPitch * 0.9f, -0.65f), 0, 0);
         Wag(0.15f, stride);
+
+        // Sitting, the tail bends back to lie flat along the ground behind.
+        _tail[0].Rotation += new Vector3(Pose(0f, -SitPitch, 0f), 0, 0);
     }
 
     /// <summary>In the water: belly-down kicking with both hind flippers when on the move, or rolled over and floating at rest.</summary>
