@@ -7,10 +7,17 @@ namespace IceAgeWorld;
 /// wanders slightly as it rises, a random number of ragged, drooping foliage tiers in its own shade of
 /// green, each held up by a whorl of bark branches, a few bare dead branches on the lower trunk, and snow
 /// lying on the upper branches. Bark, needle and snow colours are baked into vertex colours
-/// so a single material draws the whole tree.
+/// so a single material draws the whole tree. One sturdy bare limb, sticking straight out along +X just
+/// below the crown, is strong enough for a snow leopard to climb up and lie on.
 /// </summary>
 public static class PineTree
 {
+    /// <summary>
+    /// A built tree: its mesh, the base radius and height of its trunk, and how high up and how long the
+    /// perching limb is. All in the tree's own space, before it is scaled into place.
+    /// </summary>
+    public sealed record Shape(ArrayMesh Mesh, float TrunkRadius, float TrunkHeight, float PerchHeight, float PerchLength);
+
     private const int Sides = 10;
     private const int TrunkRings = 6;
     private const int BranchSides = 5;
@@ -20,7 +27,7 @@ public static class PineTree
     private static readonly Color DeadWood = new(0.4f, 0.36f, 0.32f);
     private static readonly Color Snow = new(0.93f, 0.95f, 1f);
 
-    public static ArrayMesh Build(RandomNumberGenerator rng, Material material)
+    public static Shape Build(RandomNumberGenerator rng, Material material)
     {
         var mesh = new MeshBuilder();
 
@@ -78,7 +85,16 @@ public static class PineTree
             BuildTier(mesh, rng, tierBase, radius, tierHeight, colour, snowCover);
         }
 
-        return mesh.Commit(material);
+        // The perching limb sits far enough below the crown for a big cat to lie on it without its back in the
+        // needles. It gets its own random numbers, seeded from where the tree's left off, so adding it changes
+        // neither any tree's shape nor where the forest grows.
+        float perchHeight = Mathf.Max(crownBase - 0.9f, 1.2f);
+        const float perchLength = 1.7f;
+        var perchRng = new RandomNumberGenerator { Seed = rng.State };
+        BuildBranch(mesh, perchRng, Vector3.Up * perchHeight, new Vector3(perchLength, perchHeight + 0.15f, 0f), 0.04f,
+            Mathf.Max(TrunkRadiusAt(perchHeight) * 0.55f, 0.09f), Bark);
+
+        return new Shape(mesh.Commit(material), trunkRadius, trunkHeight, perchHeight, perchLength);
     }
 
     private static void BuildTrunk(MeshBuilder mesh, RandomNumberGenerator rng, float height, float baseRadius)

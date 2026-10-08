@@ -33,10 +33,9 @@ public partial class Mammoth : Animal
 
     public override AnimalStats Stats { get; } = new()
     {
-        WalkSpeed = 6f,
-        SprintSpeed = 13f,
-        SwimSpeed = 4f,
-        JumpVelocity = 7f,
+        Scores = new() { JumpHeight = 1, JumpLength = 1, LandSpeed = 6, WaterSpeed = 4, Agility = 3, Stamina = 9 },
+        Abilities = Ability.Herd,
+        Companions = 4,
         FloatDepth = 2.2f,
         WadeDepth = 0.6f,
         MouthDistance = 3f,

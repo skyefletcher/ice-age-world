@@ -7,6 +7,33 @@ namespace IceAgeWorld;
 public readonly record struct Lake(Vector2 Centre, float Radius, float Surface);
 
 /// <summary>
+/// A placed pine tree, for animals that climb: where its trunk runs and where its perching limb sticks out.
+/// <see cref="Transform"/> places the tree's <see cref="PineTree.Shape"/> in the world, and the other values are in
+/// the tree's own space.
+/// </summary>
+public readonly record struct Tree(Transform3D Transform, float TrunkRadius, float TrunkHeight, float PerchHeight, float PerchLength)
+{
+    private float HeightScale => Transform.Basis.Y.Length();
+    private float WidthScale => Transform.Basis.X.Length();
+
+    /// <summary>The middle of the trunk at the given height above the tree's foot. Trees lean a little, so it drifts.</summary>
+    public Vector3 AxisAt(float height) => Transform * (Vector3.Up * (height / HeightScale));
+
+    /// <summary>How thick the trunk is at the given height above the tree's foot; it tapers towards the top.</summary>
+    public float RadiusAt(float height) =>
+        TrunkRadius * WidthScale * Mathf.Lerp(1f, 0.15f, Mathf.Clamp(height / HeightScale / TrunkHeight, 0f, 1f));
+
+    /// <summary>Height of the perching limb above the tree's foot.</summary>
+    public float PerchClimb => PerchHeight * HeightScale;
+
+    /// <summary>Level direction the perching limb points.</summary>
+    public Vector3 PerchDirection => (Transform.Basis.X with { Y = 0f }).Normalized();
+
+    /// <summary>The spot part-way along the limb where an animal lies, on top of the wood.</summary>
+    public Vector3 PerchSpot => Transform * new Vector3(PerchLength * 0.55f, PerchHeight + 0.12f, 0f);
+}
+
+/// <summary>
 /// Procedurally generates the ice-age landscape: a noise-based heightmap mesh, matching collision,
 /// a ring of mountains around the edge to keep players in, lake basins and patches of randomised pine forest.
 /// </summary>
@@ -39,11 +66,35 @@ public partial class Terrain : Node3D
 
     private float[] _heights = [];
     private readonly List<Lake> _lakes = [];
+    private readonly List<Tree> _trees = [];
+
+    /// <summary>Radius of the solid column round each trunk that stops animals walking through trees.</summary>
+    public const float TrunkCollisionRadius = 0.6f;
 
     /// <summary>Distance from the centre of the map to its edge.</summary>
     public float HalfSize => (Resolution - 1) * CellSize / 2f;
 
     public IReadOnlyList<Lake> Lakes => _lakes;
+
+    public IReadOnlyList<Tree> Trees => _trees;
+
+    /// <summary>The tree whose trunk is closest to a point (ignoring height), if any is within <paramref name="within"/>.</summary>
+    public Tree? NearestTree(Vector3 point, float within)
+    {
+        Tree? nearest = null;
+        float best = within * within;
+        foreach (var tree in _trees)
+        {
+            var offset = tree.Transform.Origin - point;
+            float distance = offset.X * offset.X + offset.Z * offset.Z;
+            if (distance < best)
+            {
+                best = distance;
+                nearest = tree;
+            }
+        }
+        return nearest;
+    }
 
     public override void _Ready()
     {
@@ -289,7 +340,7 @@ public partial class Terrain : Node3D
         };
 
         // A handful of base shapes, each one a different tree; every placed tree then varies further.
-        var variants = new ArrayMesh[TreeVariants];
+        var variants = new PineTree.Shape[TreeVariants];
         var placements = new List<(Transform3D Transform, Color Tint)>[TreeVariants];
         for (int v = 0; v < TreeVariants; v++)
         {
@@ -298,7 +349,7 @@ public partial class Terrain : Node3D
         }
 
         // Trunks are solid so animals can't walk through trees.
-        var trunkShape = new CylinderShape3D { Radius = 0.6f, Height = 6f };
+        var trunkShape = new CylinderShape3D { Radius = TrunkCollisionRadius, Height = 6f };
         var bodies = new StaticBody3D { Name = "TreeBodies" };
         float range = HalfSize * 0.85f;
         int placed = 0;
@@ -328,16 +379,18 @@ public partial class Terrain : Node3D
                         * Basis.FromScale(new Vector3(width, height, width));
             float brightness = rng.RandfRange(0.8f, 1.1f);
 
-            placements[rng.RandiRange(0, TreeVariants - 1)].Add((
-                new Transform3D(basis, new Vector3(x, h - 0.2f, z)),
-                new Color(brightness, brightness, brightness)));
+            int variant = rng.RandiRange(0, TreeVariants - 1);
+            var transform = new Transform3D(basis, new Vector3(x, h - 0.2f, z));
+            placements[variant].Add((transform, new Color(brightness, brightness, brightness)));
+            var shape = variants[variant];
+            _trees.Add(new Tree(transform, shape.TrunkRadius, shape.TrunkHeight, shape.PerchHeight, shape.PerchLength));
             bodies.AddChild(new CollisionShape3D { Shape = trunkShape, Position = new Vector3(x, h + 3f, z) });
             placed++;
         }
 
         AddChild(bodies);
         for (int v = 0; v < TreeVariants; v++)
-            AddTreeVariant(variants[v], placements[v]);
+            AddTreeVariant(variants[v].Mesh, placements[v]);
     }
 
     /// <summary>Draws every tree that shares one base shape in a single draw call using a MultiMesh.</summary>

@@ -1,17 +1,17 @@
+using System;
+using System.Collections.Generic;
 using Godot;
 
 namespace IceAgeWorld;
 
 /// <summary>
 /// The player's animal: camera-relative movement, sprinting, jumping, swimming, eating and drinking,
-/// hunger and thirst, and a third-person orbit camera. The player can switch between animals; each
-/// <see cref="Animal"/> supplies its own speeds, size and diet, and animates itself from the speed, stride
-/// and head-dip it is given each frame.
+/// hunger, thirst and stamina, and a third-person orbit camera. The player can switch between animals; each
+/// <see cref="Animal"/> supplies its own speeds, size, diet and abilities, and animates itself from the speed,
+/// stride and head-dip it is given each frame. Flying and tree climbing live in their own files.
 /// </summary>
 public partial class Player : CharacterBody3D
 {
-    [Export] public float Acceleration { get; set; } = 10f;
-    [Export] public float TurnSpeed { get; set; } = 6f;
     [Export] public float MouseSensitivity { get; set; } = 0.003f;
 
     /// <summary>Seconds one mouthful of grass takes, from lowering the head to raising it again.</summary>
@@ -26,7 +26,7 @@ public partial class Player : CharacterBody3D
     /// <summary>Seconds for a full thirst bar to empty while walking about.</summary>
     [Export] public float ThirstDrainSeconds { get; set; } = 600f;
 
-    /// <summary>How much faster hunger and thirst drain while running or swimming.</summary>
+    /// <summary>How much faster hunger and thirst drain while running, swimming, flapping or climbing.</summary>
     [Export] public float ExertionDrainMultiplier { get; set; } = 2f;
 
     /// <summary>Hunger restored by one mouthful of grass.</summary>
@@ -35,20 +35,29 @@ public partial class Player : CharacterBody3D
     /// <summary>Thirst restored by one full drink.</summary>
     [Export] public float WaterPerDrink { get; set; } = 40f;
 
+    /// <summary>Once stamina runs out, it must refill this far before the animal can exert itself again.</summary>
+    [Export] public float RecoveredStamina { get; set; } = 25f;
+
     /// <summary>Fullness from 0 (starving) to 100 (full).</summary>
     public float Hunger { get; private set; } = 75f;
 
     /// <summary>Hydration from 0 (parched) to 100 (fully watered).</summary>
     public float Thirst { get; private set; } = 60f;
 
+    /// <summary>Breath from 0 (spent) to 100 (fresh). Hard work uses it up and rest brings it back.</summary>
+    public float Stamina { get; private set; } = 100f;
+
     /// <summary>True when hunger or thirst has run out; the animal is too weak to run and walks slowly.</summary>
     public bool IsWeak => Hunger <= 0f || Thirst <= 0f;
+
+    /// <summary>True from when stamina runs out until it has partly refilled; the animal can only walk, glide or cling on.</summary>
+    public bool IsExhausted { get; private set; }
 
     public Terrain? Terrain { get; set; }
     public Grassland? Grassland { get; set; }
     public Water? Water { get; set; }
 
-    /// <summary>What pressing E will do right now (e.g. "Press E to drink"), or null if nothing.</summary>
+    /// <summary>What the player can do right now (e.g. "Press E to drink"), or null if nothing.</summary>
     public string? ActionPrompt { get; private set; }
 
     public bool IsFeeding => _feeding != Feeding.None;
@@ -61,10 +70,14 @@ public partial class Player : CharacterBody3D
 
     private enum Feeding { None, Eating, Drinking }
 
+    private enum Mode { Ground, Flying, Climbing, Perched }
+
     private readonly float _gravity = ProjectSettings.GetSetting("physics/3d/default_gravity").AsSingle();
 
     private Animal[] _animals = [];
+    private readonly Dictionary<Animal, Herd> _herds = [];
     private int _animalIndex;
+    private Mode _mode;
     private CollisionShape3D _collision = null!;
     private Node3D _cameraPivot = null!;
     private SpringArm3D _springArm = null!;
@@ -87,11 +100,34 @@ public partial class Player : CharacterBody3D
         _springArm.Rotation = new Vector3(-0.35f, 0, 0);
 
         // Every animal is built up front, so switching is instant; only the current one is shown.
-        _animals = [new Mammoth { Name = "Mammoth" }, new SnowLeopard { Name = "SnowLeopard" }];
+        _animals =
+        [
+            new Mammoth { Name = "Mammoth" },
+            new SnowLeopard { Name = "SnowLeopard" },
+            new ArcticWolf { Name = "ArcticWolf" },
+            new SeaOtter { Name = "SeaOtter" },
+            new BaldEagle { Name = "BaldEagle" },
+        ];
         foreach (var animal in _animals)
         {
             animal.Visible = false;
             AddChild(animal);
+
+            // Pack and herd animals come with companions of their own kind, who only show while the player is one of them.
+            if (animal.Stats.Companions > 0)
+            {
+                var kind = animal.GetType();
+                var herd = new Herd
+                {
+                    Leader = this,
+                    Breed = () => (Animal)Activator.CreateInstance(kind)!,
+                    Count = animal.Stats.Companions,
+                    Name = animal.Name + "Herd",
+                    Visible = false,
+                };
+                _herds[animal] = herd;
+                AddChild(herd);
+            }
         }
         BecomeAnimal(0);
     }
@@ -100,7 +136,11 @@ public partial class Player : CharacterBody3D
     public void SwitchAnimal()
     {
         float yaw = Animal.Rotation.Y;
+        LeaveTree();
         Animal.Visible = false;
+        if (_herds.TryGetValue(Animal, out var oldHerd))
+            oldHerd.Visible = false;
+
         BecomeAnimal((_animalIndex + 1) % _animals.Length);
         Animal.Rotation = new Vector3(0, yaw, 0);
     }
@@ -109,7 +149,9 @@ public partial class Player : CharacterBody3D
     private void BecomeAnimal(int index)
     {
         _animalIndex = index;
+        _mode = Mode.Ground;
         Animal.Visible = true;
+        Animal.IsFlying = Animal.IsClimbing = Animal.IsSwimming = false;
 
         // Interrupt any meal in progress; the new animal may not even eat grass.
         _feeding = Feeding.None;
@@ -120,14 +162,25 @@ public partial class Player : CharacterBody3D
         _collision.Position = new Vector3(0, Stats.BodyHeight / 2f, 0);
         _cameraPivot.Position = new Vector3(0, Stats.CameraHeight, 0);
         _springArm.SpringLength = Stats.CameraDistance;
+
+        if (_herds.TryGetValue(Animal, out var herd))
+        {
+            herd.Visible = true;
+            herd.Gather();
+        }
     }
 
     /// <summary>Places the player just above the ground at the centre of the map.</summary>
     public void Respawn()
     {
+        _mode = Mode.Ground;
+        Animal.IsFlying = Animal.IsClimbing = false;
+        Animal.Rotation = new Vector3(0, Animal.Rotation.Y, 0);
         float ground = Terrain?.GetHeight(0, 0) ?? 0f;
         GlobalPosition = new Vector3(0, ground + 2f, 0);
         Velocity = Vector3.Zero;
+        if (_herds.TryGetValue(Animal, out var herd))
+            herd.Gather();
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -161,15 +214,64 @@ public partial class Player : CharacterBody3D
     public override void _PhysicsProcess(double delta)
     {
         float dt = (float)delta;
+        ActionPrompt = null;
+
+        // Movement is relative to where the camera is facing, flattened onto the ground plane.
+        var input = Input.GetVector(InputSetup.MoveLeft, InputSetup.MoveRight, InputSetup.MoveForward, InputSetup.MoveBack);
+        var camera = _cameraPivot.GlobalBasis;
+        var direction = camera.X * input.X + camera.Z * input.Y;
+        direction.Y = 0;
+        direction = direction.Normalized();
+
+        switch (_mode)
+        {
+            case Mode.Flying:
+                Fly(dt, direction);
+                break;
+            case Mode.Climbing:
+            case Mode.Perched:
+                Climb(dt, input);
+                break;
+            default:
+                Walk(dt, direction);
+                break;
+        }
+
+        if (GlobalPosition.Y < -50f)
+            Respawn();
+    }
+
+    /// <summary>Moving on foot or swimming: everything every animal can do.</summary>
+    private void Walk(float dt, Vector3 direction)
+    {
         var velocity = Velocity;
 
         // How deep the water is at our feet; 0 on dry land.
         float? surface = Water?.SurfaceAt(GlobalPosition);
         float waterDepth = surface.HasValue ? Mathf.Max(0f, surface.Value - GlobalPosition.Y) : 0f;
 
-        // Start swimming a little before the float depth, so we don't flicker in and out of it while floating.
-        IsSwimming = waterDepth > Stats.FloatDepth * 0.87f;
+        // Start swimming a little before the float depth, and only stop once well out of it, so bobbing on the surface
+        // never flickers the animal in and out of swimming.
+        IsSwimming = waterDepth > Stats.FloatDepth * (IsSwimming ? 0.5f : 0.87f);
 
+        UpdateFeeding(dt);
+
+        // The animal stands still while it eats or drinks.
+        if (IsFeeding)
+            direction = Vector3.Zero;
+
+        // A climber that walks into a tree trunk starts up it.
+        if (direction != Vector3.Zero && Stats.Can(Ability.ClimbTrees) && IsOnFloor() && !IsSwimming && TryStartClimb(direction))
+            return;
+
+        bool jumping = !IsFeeding && Input.IsActionJustPressed(InputSetup.Jump);
+        if (jumping && Stats.Can(Ability.Fly) && (IsOnFloor() || IsSwimming))
+        {
+            TakeOff(direction);
+            return;
+        }
+
+        bool airborne = false;
         if (IsSwimming)
         {
             // Spring towards floating height, with a gentle bob.
@@ -180,47 +282,47 @@ public partial class Player : CharacterBody3D
         else if (!IsOnFloor())
         {
             velocity.Y -= _gravity * dt;
+            airborne = true;
         }
-        else if (!IsFeeding && Input.IsActionJustPressed(InputSetup.Jump))
+        else if (jumping)
         {
-            velocity.Y = Stats.JumpVelocity;
+            // Launch fast enough to clear the animal's jump height, and a running jump carries it further forward.
+            velocity.Y = Mathf.Sqrt(2f * _gravity * Stats.JumpHeight);
+            velocity += direction * Stats.JumpBoost;
+            airborne = true;
         }
 
-        // Movement is relative to where the camera is facing, flattened onto the ground plane.
-        var input = Input.GetVector(InputSetup.MoveLeft, InputSetup.MoveRight, InputSetup.MoveForward, InputSetup.MoveBack);
-        var camera = _cameraPivot.GlobalBasis;
-        var direction = camera.X * input.X + camera.Z * input.Y;
-        direction.Y = 0;
-        direction = direction.Normalized();
-
-        UpdateFeeding(dt);
-
-        // The animal stands still while it eats or drinks.
-        if (IsFeeding)
-            direction = Vector3.Zero;
-
-        bool sprinting = Input.IsActionPressed(InputSetup.Sprint) && direction != Vector3.Zero && !IsSwimming && !IsWeak;
+        bool sprinting = Input.IsActionPressed(InputSetup.Sprint) && direction != Vector3.Zero && !IsSwimming && !IsWeak && !IsExhausted;
         UpdateNeeds(dt, exerting: sprinting || IsSwimming);
+        UpdateStamina(dt, effort: sprinting ? 1f : IsSwimming ? Stats.SwimEffort : 0f);
 
         float speed = sprinting ? Stats.SprintSpeed : Stats.WalkSpeed;
         if (IsSwimming)
-            speed = Stats.SwimSpeed;
+            speed = Stats.SwimSpeed * (IsExhausted ? 0.6f : 1f);
         else if (waterDepth > Stats.WadeDepth)
             speed *= 0.6f;
         if (IsWeak)
             speed *= 0.6f;
 
         var target = direction * speed;
-        var horizontal = new Vector3(velocity.X, 0, velocity.Z).Lerp(target, Mathf.Min(1f, Acceleration * dt));
+        var horizontal = new Vector3(velocity.X, 0, velocity.Z);
+        if (airborne)
+        {
+            // In the air the animal can only steer a little, and keeps the speed it leapt with.
+            if (direction != Vector3.Zero)
+                target = direction * Mathf.Max(speed, horizontal.Length());
+            horizontal = horizontal.MoveToward(target, Stats.Acceleration * 0.5f * dt);
+        }
+        else
+        {
+            horizontal = horizontal.Lerp(target, Mathf.Min(1f, Stats.Acceleration * dt));
+        }
         velocity.X = horizontal.X;
         velocity.Z = horizontal.Z;
 
         // Turn the model (not the body, which also carries the camera) to face the way we're moving.
         if (direction != Vector3.Zero)
-        {
-            float yaw = Mathf.Atan2(-direction.X, -direction.Z);
-            Animal.Rotation = new Vector3(0, Mathf.LerpAngle(Animal.Rotation.Y, yaw, TurnSpeed * dt), 0);
-        }
+            Animal.Rotation = new Vector3(0, Mathf.LerpAngle(Animal.Rotation.Y, Yaw(direction), Stats.TurnSpeed * dt), 0);
 
         Velocity = velocity;
         MoveAndSlide();
@@ -237,11 +339,12 @@ public partial class Player : CharacterBody3D
         {
             stride = IsOnFloor() ? Mathf.Clamp(groundSpeed / Stats.WalkSpeed, 0f, 1f) : 0f;
         }
+        Animal.IsSwimming = IsSwimming;
         Animal.Animate(groundSpeed, stride, _headDip, dt);
-
-        if (GlobalPosition.Y < -50f)
-            Respawn();
     }
+
+    /// <summary>Heading that faces a level direction, as a rotation about Y (the models face -Z).</summary>
+    private static float Yaw(Vector3 direction) => Mathf.Atan2(-direction.X, -direction.Z);
 
     /// <summary>
     /// Works out whether the animal can drink or eat, starts doing so when E is pressed, and tracks how far
@@ -250,8 +353,6 @@ public partial class Player : CharacterBody3D
     /// </summary>
     private void UpdateFeeding(float dt)
     {
-        ActionPrompt = null;
-
         if (!IsFeeding && IsOnFloor() && !IsSwimming)
         {
             var mouth = GlobalPosition - Animal.GlobalBasis.Z * Stats.MouthDistance;
@@ -308,6 +409,23 @@ public partial class Player : CharacterBody3D
         float rate = exerting ? ExertionDrainMultiplier : 1f;
         Hunger = Mathf.Max(0f, Hunger - 100f / HungerDrainSeconds * rate * dt);
         Thirst = Mathf.Max(0f, Thirst - 100f / ThirstDrainSeconds * rate * dt);
+    }
+
+    /// <summary>
+    /// Stamina drains while the animal works, by <paramref name="effort"/> (1 is flat out), and refills while it rests.
+    /// Running dry leaves it exhausted until it has partly got its breath back.
+    /// </summary>
+    private void UpdateStamina(float dt, float effort)
+    {
+        if (effort > 0f)
+            Stamina = Mathf.Max(0f, Stamina - 100f / Stats.StaminaSeconds * effort * dt);
+        else
+            Stamina = Mathf.Min(100f, Stamina + 100f / Stats.RecoverySeconds * dt);
+
+        if (Stamina <= 0f)
+            IsExhausted = true;
+        else if (Stamina >= RecoveredStamina)
+            IsExhausted = false;
     }
 
     private void StartFeeding(Feeding feeding, float duration)

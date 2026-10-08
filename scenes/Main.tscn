@@ -8,6 +8,7 @@
 [ext_resource type="Script" path="res://scripts/Hud.cs" id="6_hud"]
 [ext_resource type="Texture2D" path="res://icons/leaf.svg" id="7_leaf"]
 [ext_resource type="Texture2D" path="res://icons/drop.svg" id="8_drop"]
+[ext_resource type="Texture2D" path="res://icons/bolt.svg" id="9_bolt"]
 
 [sub_resource type="ProceduralSkyMaterial" id="SkyMat"]
 sky_top_color = Color(0.42, 0.58, 0.78, 1)
@@ -48,6 +49,13 @@ corner_radius_top_right = 5
 corner_radius_bottom_right = 5
 corner_radius_bottom_left = 5
 
+[sub_resource type="StyleBoxFlat" id="StaminaFill"]
+bg_color = Color(0.45, 0.85, 0.32, 1)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
 [node name="Main" type="Node3D"]
 script = ExtResource("1_main")
 
@@ -76,7 +84,7 @@ script = ExtResource("6_hud")
 [node name="Controls" type="Label" parent="Hud"]
 offset_left = 16.0
 offset_top = 12.0
-text = "WASD: move   Shift: run   Space: jump   E: eat / drink   Tab: switch animal   Mouse: look   Wheel: zoom   Esc: free mouse   F11: fullscreen"
+text = "WASD: move   Shift: run / dive   Space: jump / fly / leap   E: eat / drink   Tab: switch animal   Mouse: look   Wheel: zoom   Esc: free mouse   F11: fullscreen"
 
 [node name="ActionPrompt" type="Label" parent="Hud"]
 visible = false
@@ -102,7 +110,7 @@ anchors_preset = 2
 anchor_top = 1.0
 anchor_bottom = 1.0
 offset_left = 20.0
-offset_top = -130.0
+offset_top = -172.0
 offset_right = 340.0
 offset_bottom = -20.0
 grow_vertical = 0
@@ -127,7 +135,7 @@ expand_mode = 1
 stretch_mode = 5
 
 [node name="Label" type="Label" parent="Hud/Needs/Hunger"]
-custom_minimum_size = Vector2(70, 0)
+custom_minimum_size = Vector2(80, 0)
 layout_mode = 2
 theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
 theme_override_constants/outline_size = 5
@@ -156,7 +164,7 @@ expand_mode = 1
 stretch_mode = 5
 
 [node name="Label" type="Label" parent="Hud/Needs/Thirst"]
-custom_minimum_size = Vector2(70, 0)
+custom_minimum_size = Vector2(80, 0)
 layout_mode = 2
 theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
 theme_override_constants/outline_size = 5
@@ -171,4 +179,33 @@ size_flags_vertical = 4
 theme_override_styles/background = SubResource("BarBackground")
 theme_override_styles/fill = SubResource("ThirstFill")
 value = 60.0
+show_percentage = false
+
+[node name="Stamina" type="HBoxContainer" parent="Hud/Needs"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Icon" type="TextureRect" parent="Hud/Needs/Stamina"]
+custom_minimum_size = Vector2(32, 32)
+layout_mode = 2
+texture = ExtResource("9_bolt")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Label" type="Label" parent="Hud/Needs/Stamina"]
+custom_minimum_size = Vector2(80, 0)
+layout_mode = 2
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 5
+theme_override_font_sizes/font_size = 18
+text = "Stamina"
+
+[node name="Bar" type="ProgressBar" parent="Hud/Needs/Stamina"]
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+theme_override_styles/background = SubResource("BarBackground")
+theme_override_styles/fill = SubResource("StaminaFill")
+value = 100.0
 show_percentage = false

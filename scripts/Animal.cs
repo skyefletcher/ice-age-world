@@ -4,13 +4,92 @@ using Godot;
 
 namespace IceAgeWorld;
 
+/// <summary>
+/// How good an animal is at each thing, out of 10: the design table every animal is balanced from. The speeds,
+/// jumps, turning and stamina in <see cref="AnimalStats"/> are all worked out from these, so tuning an animal means
+/// changing a score here rather than a dozen numbers.
+/// </summary>
+public sealed record AnimalScores
+{
+    public required int JumpHeight { get; init; }
+    public required int JumpLength { get; init; }
+    public required int LandSpeed { get; init; }
+    public required int WaterSpeed { get; init; }
+
+    /// <summary>How sharply the animal turns and how quickly it gets up to speed.</summary>
+    public required int Agility { get; init; }
+
+    /// <summary>How long the animal can keep running, swimming, flying or climbing, and how fast it gets its breath back.</summary>
+    public required int Stamina { get; init; }
+
+    /// <summary>Agility in the air, for animals that fly; they can be clumsy on the ground but nimble on the wing.</summary>
+    public int? FlightAgility { get; init; }
+}
+
+/// <summary>Things only some animals can do.</summary>
+[Flags]
+public enum Ability
+{
+    None = 0,
+    ClimbTrees = 1,
+    Fly = 2,
+
+    /// <summary>Travels with a pack that runs in file behind its leader.</summary>
+    Pack = 4,
+
+    /// <summary>Travels with a herd that ambles along in a loose crowd and grazes whenever it stops.</summary>
+    Herd = 8,
+}
+
 /// <summary>How an animal moves, feeds and fills the player's body and camera, so <see cref="Player"/> can drive any of them.</summary>
 public sealed record AnimalStats
 {
-    public required float WalkSpeed { get; init; }
-    public required float SprintSpeed { get; init; }
-    public required float SwimSpeed { get; init; }
-    public required float JumpVelocity { get; init; }
+    public required AnimalScores Scores { get; init; }
+
+    public Ability Abilities { get; init; }
+
+    /// <summary>How many computer-controlled animals of the same kind travel with the player's pack or herd.</summary>
+    public int Companions { get; init; }
+
+    /// <summary>Cruising airspeed, for animals that fly. Diving goes faster, and drifting without steering slower.</summary>
+    public float FlySpeed { get; init; }
+
+    // Top speed: a 9 (the snow leopard) sprints at about 15 m/s and a 6 (the mammoth) at about 10 m/s, close to
+    // the real animals' bursts; a walk is a comfortable fraction of that.
+    public float SprintSpeed => Scores.LandSpeed * 1.7f;
+    public float WalkSpeed => SprintSpeed * 0.4f;
+    public float SwimSpeed => 0.5f + Scores.WaterSpeed * 0.8f;
+
+    /// <summary>How high a standing jump clears, in metres: about 2.5 m for a 10, and barely a hop for a 1.</summary>
+    public float JumpHeight => 0.2f + Scores.JumpHeight * 0.23f;
+
+    /// <summary>Extra forward speed a running jump launches with, so long jumpers carry further.</summary>
+    public float JumpBoost => Scores.JumpLength * 0.45f;
+
+    /// <summary>How quickly the body swings round to face a new heading.</summary>
+    public float TurnSpeed => TurnSpeedFor(Scores.Agility);
+
+    /// <summary>How quickly the animal reaches the speed it's asked for, or stops.</summary>
+    public float Acceleration => 3f + Scores.Agility * 1.1f;
+
+    /// <summary>How quickly a flying animal banks round to a new heading. Wide, sweeping turns even at best.</summary>
+    public float FlightTurnSpeed => TurnSpeedFor(Scores.FlightAgility ?? Scores.Agility) * 0.35f;
+
+    /// <summary>Seconds of flat-out effort a full stamina bar lasts.</summary>
+    public float StaminaSeconds => Scores.Stamina * 4f;
+
+    /// <summary>Seconds of rest to refill an empty stamina bar.</summary>
+    public float RecoverySeconds => 30f - Scores.Stamina * 2f;
+
+    /// <summary>
+    /// How hard swimming is compared with sprinting: strong swimmers hardly tire in the water, while poor ones
+    /// wear themselves out almost as fast as running.
+    /// </summary>
+    public float SwimEffort => 1f - Scores.WaterSpeed / 10f;
+
+    public bool Can(Ability ability) => (Abilities & ability) != 0;
+
+    private static float TurnSpeedFor(int agility) => 1.5f + agility * 0.85f;
 
     /// <summary>How far below the water surface the animal's feet hang while it floats.</summary>
     public required float FloatDepth { get; init; }
@@ -53,6 +132,24 @@ public abstract partial class Animal : Node3D
     /// </summary>
     public abstract void Animate(float speed, float stride, float eat, float dt);
 
+    // What the animal is doing besides walking, set before each Animate so the model can take the right pose.
+    public bool IsSwimming { get; set; }
+    public bool IsFlying { get; set; }
+    public bool IsClimbing { get; set; }
+
+    /// <summary>0..1 how hard a flying animal is beating its wings; 0 glides on outstretched wings.</summary>
+    public float Flap { get; set; }
+
+    /// <summary>0..1 how far a flying animal has tucked its wings in to dive.</summary>
+    public float Dive { get; set; }
+
+    /// <summary>
+    /// How far each joint of a two-segment leg of the given length must bend for the leg to reach
+    /// <paramref name="shorten"/> less far, with the foot staying under the hip.
+    /// </summary>
+    protected static float FoldAngle(float shorten, float length) =>
+        Mathf.Acos(Mathf.Clamp(1f - Mathf.Max(0f, shorten) / length, -1f, 1f));
+
     protected static ShaderMaterial HairMaterial() => new() { Shader = GD.Load<Shader>("res://shaders/fur.gdshader") };
 
     protected static Node3D Pivot(Node3D parent, string name, Vector3 position)
@@ -83,8 +180,13 @@ public abstract partial class Animal : Node3D
         return n.LengthSquared() > reach * reach * 1e-6f ? n.Normalized() : (phi > 0 ? Vector3.Up : Vector3.Down);
     }
 
-    /// <summary>A sphere pushed through <paramref name="shape"/>, which maps unit directions to surface points.</summary>
-    protected static ArrayMesh Ellipsoid(Func<Vector3, Vector3> shape, int segments, int rings, Material material)
+    /// <summary>
+    /// A sphere pushed through <paramref name="shape"/>, which maps unit directions to surface points. When
+    /// <paramref name="colouring"/> is given it paints each vertex from its position and normal, for materials that
+    /// use vertex colour.
+    /// </summary>
+    protected static ArrayMesh Ellipsoid(Func<Vector3, Vector3> shape, int segments, int rings, Material material,
+        Func<Vector3, Vector3, Color>? colouring = null)
     {
         var mesh = new MeshBuilder();
         var index = new int[rings + 1, segments + 1];
@@ -94,7 +196,9 @@ public abstract partial class Animal : Node3D
             for (int s = 0; s <= segments; s++)
             {
                 float theta = Mathf.Tau * s / segments;
-                index[r, s] = mesh.Add(shape(Direction(theta, phi)), ShapeNormal(shape, theta, phi), Colors.White);
+                var point = shape(Direction(theta, phi));
+                var normal = ShapeNormal(shape, theta, phi);
+                index[r, s] = mesh.Add(point, normal, colouring?.Invoke(point, normal) ?? Colors.White);
             }
         }
         for (int r = 0; r < rings; r++)
@@ -104,8 +208,9 @@ public abstract partial class Animal : Node3D
     }
 
     /// <summary>A plain axis-aligned ellipsoid with the given half-extents.</summary>
-    protected static ArrayMesh Ellipsoid(Vector3 radii, int segments, int rings, Material material) =>
-        Ellipsoid(u => u * radii, segments, rings, material);
+    protected static ArrayMesh Ellipsoid(Vector3 radii, int segments, int rings, Material material,
+        Func<Vector3, Vector3, Color>? colouring = null) =>
+        Ellipsoid(u => u * radii, segments, rings, material, colouring);
 
     /// <summary>A tube of varying radius swept along a path, with the cross-section frame carried along the curve.</summary>
     protected static ArrayMesh Tube(Vector3[] path, float[] radii, int sides, Material material, bool capEnd)
@@ -228,6 +333,31 @@ public abstract partial class Animal : Node3D
             mesh.Tri(m0, m1, t);
         }
         return mesh.Commit(hair);
+    }
+
+    /// <summary>
+    /// A round eye set into the face at <paramref name="position"/>, looking along -Z after <paramref name="rotation"/>:
+    /// a thin dark rim, a coloured iris under a glossy cornea, a round pupil filling <paramref name="pupil"/> of the
+    /// iris, and a bright point of reflected light.
+    /// </summary>
+    protected static void Eye(Node3D parent, Vector3 position, Vector3 rotation, float radius, Color iris, float pupil)
+    {
+        var rim = new StandardMaterial3D { AlbedoColor = new Color(0.04f, 0.035f, 0.035f), Roughness = 0.5f };
+        StandardMaterial3D Glossy(Color colour) => new()
+        {
+            AlbedoColor = colour, Roughness = 0.3f, ClearcoatEnabled = true, Clearcoat = 1f, ClearcoatRoughness = 0f,
+        };
+        var catchlight = new StandardMaterial3D { AlbedoColor = Colors.White, ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded };
+
+        var socket = Pivot(parent, "Eye", position);
+        socket.Rotation = rotation;
+        float depth = radius * 0.5f;
+        Attach(socket, "Rim", Ellipsoid(new Vector3(radius * 1.15f, radius * 1.15f, depth), 16, 10, rim));
+        Attach(socket, "Iris", Ellipsoid(new Vector3(radius, radius, depth), 16, 10, Glossy(iris)), new Vector3(0, 0, -radius * 0.12f));
+        Attach(socket, "Pupil", Ellipsoid(new Vector3(radius * pupil, radius * pupil, radius * 0.1f), 12, 8, Glossy(new Color(0.01f, 0.01f, 0.01f))),
+            new Vector3(0, 0, -depth - radius * 0.06f));
+        Attach(socket, "Catchlight", Ellipsoid(new Vector3(radius * 0.14f, radius * 0.14f, radius * 0.04f), 8, 6, catchlight),
+            new Vector3(radius * 0.25f, radius * 0.3f, -depth - radius * 0.12f));
     }
 
     private static Color Shade(Color colour, float amount) =>

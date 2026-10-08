@@ -21,9 +21,12 @@ public partial class SnowLeopard : Animal
     /// <summary>How much bigger the whole head (skull, face, ears and fur) is drawn than it is modelled.</summary>
     private const float HeadScale = 1.6f;
 
+    /// <summary>How much smaller the muzzle (nose bridge, nose, whisker pads and chin) is drawn than it is modelled.</summary>
+    private const float MuzzleScale = 0.8f;
+
     // How much bigger the eyes and ears are drawn than they are modelled, on top of the head's own scale.
-    private const float EyeScale = 1.3f;
-    private const float EarScale = 1.4f;
+    private const float EyeScale = 1.45f;
+    private const float EarScale = 1.6f;
 
     // How far the body sinks and tips forward while drinking, with the forelegs folding to keep the paws planted.
     private const float CrouchDrop = 0.1f;
@@ -70,10 +73,8 @@ public partial class SnowLeopard : Animal
 
     public override AnimalStats Stats { get; } = new()
     {
-        WalkSpeed = 4.5f,
-        SprintSpeed = 15f,
-        SwimSpeed = 2.5f,
-        JumpVelocity = 7.5f,
+        Scores = new() { JumpHeight = 10, JumpLength = 10, LandSpeed = 9, WaterSpeed = 3, Agility = 10, Stamina = 7 },
+        Abilities = Ability.ClimbTrees,
         FloatDepth = 0.4f,
         WadeDepth = 0.25f,
         MouthDistance = 0.7f,
@@ -151,13 +152,6 @@ public partial class SnowLeopard : Animal
         _hair.SetShaderParameter("sway_amount", 0.006f + 0.015f * stride);
     }
 
-    /// <summary>
-    /// How far each joint of a two-segment leg of the given length must bend for the leg to reach
-    /// <paramref name="shorten"/> less far, with the foot staying under the hip.
-    /// </summary>
-    private static float FoldAngle(float shorten, float length) =>
-        Mathf.Acos(Mathf.Clamp(1f - Mathf.Max(0f, shorten) / length, -1f, 1f));
-
     private void Build()
     {
         var rng = new RandomNumberGenerator { Seed = Seed };
@@ -166,26 +160,6 @@ public partial class SnowLeopard : Animal
         var centre = new Color(0.72f, 0.67f, 0.58f);
         var coat = ProceduralTextures.SpottedFur(Seed, dark, light, centre, Spot, scale: 2.2f);
         var spotted = ProceduralTextures.SpottedFur(Seed + 1, dark, light, centre, Spot, scale: 4f, rosettes: false);
-        var pale = new StandardMaterial3D { AlbedoColor = Cream, Roughness = 1f };
-        var nose = new StandardMaterial3D { AlbedoColor = new Color(0.5f, 0.4f, 0.4f), Roughness = 0.5f };
-        // Pale grey-green irises darkening to a ring at their edge, under a clear glossy cornea that catches the light.
-        var iris = new StandardMaterial3D
-        {
-            AlbedoColor = new Color(0.7f, 0.74f, 0.6f), Roughness = 0.35f,
-            ClearcoatEnabled = true, Clearcoat = 1f, ClearcoatRoughness = 0f,
-        };
-        var limbus = new StandardMaterial3D
-        {
-            AlbedoColor = new Color(0.34f, 0.38f, 0.3f), Roughness = 0.35f,
-            ClearcoatEnabled = true, Clearcoat = 1f, ClearcoatRoughness = 0f,
-        };
-        var rim = new StandardMaterial3D { AlbedoColor = new Color(0.04f, 0.035f, 0.035f), Roughness = 0.5f };
-        var pupil = new StandardMaterial3D
-        {
-            AlbedoColor = new Color(0.01f, 0.01f, 0.01f), Roughness = 0.2f,
-            ClearcoatEnabled = true, Clearcoat = 1f, ClearcoatRoughness = 0f,
-        };
-        var earBack = new StandardMaterial3D { AlbedoColor = new Color(0.22f, 0.21f, 0.2f), Roughness = 1f };
         _hair = HairMaterial();
 
         // Hair takes the colour of the hide beneath it, fading to cream on the belly, chest and inner legs.
@@ -218,10 +192,10 @@ public partial class SnowLeopard : Animal
             0.025f, 0.04f, FurRoot, FurTip, _hair, width: 0.022f, colouring: Underneath(spotColour, 0f, -0.5f)));
         var head = _head = Pivot(_neck, "Head", headPosition);
         head.Scale = Vector3.One * HeadScale;
-        BuildHead(head, rng, spotted, spotColour, pale, nose, iris, limbus, rim, pupil, earBack);
+        BuildHead(head, rng, spotted, spotColour);
 
-        // Legs: an upper and lower segment each, ending in a broad, furry paw. The forelegs are thick straight
-        // columns; the hind legs have a big muscular thigh and a hock that angles back.
+        // Legs: an upper and lower segment each, ending in a broad, furry paw. The forelegs are thick, powerful
+        // columns under heavy shoulders; the hind legs have big muscular thighs and a hock that angles back.
         _upperLegs = new Node3D[4];
         _lowerLegs = new Node3D[4];
         string[] legNames = ["LegFrontLeft", "LegFrontRight", "LegBackLeft", "LegBackRight"];
@@ -231,40 +205,52 @@ public partial class SnowLeopard : Animal
             float side = i % 2 == 0 ? -1f : 1f;
             float upperLength = front ? FrontUpperLength : BackUpperLength;
             float lowerLength = front ? FrontLowerLength : BackLowerLength;
-            float upperRadius = front ? 0.065f : 0.09f;
+            float upperRadius = front ? 0.085f : 0.115f;
+            float kneeRadius = front ? 0.06f : 0.064f;
             var knee = front ? new Vector3(0, -upperLength, 0.01f) : new Vector3(0, -upperLength, 0.06f);
 
             float hipHeight = upperLength + lowerLength + 0.04f;
-            _upperLegs[i] = Pivot(_frame, legNames[i], new Vector3(side * 0.1f, hipHeight, front ? -LegOffset : LegOffset));
-            Attach(_upperLegs[i], "Upper", Tube([new Vector3(0, 0.05f, 0), knee], [upperRadius, 0.045f], 12, spotted, capEnd: false));
-            Attach(_upperLegs[i], "UpperFur", Strands(rng, OnSegment(rng, 450, new Vector3(0, 0.05f, 0), knee, upperRadius, 0.045f),
+            _upperLegs[i] = Pivot(_frame, legNames[i], new Vector3(side * 0.11f, hipHeight, front ? -LegOffset : LegOffset));
+            Attach(_upperLegs[i], "Upper", Tube([new Vector3(0, 0.05f, 0), knee], [upperRadius, kneeRadius], 12, spotted, capEnd: false));
+            Attach(_upperLegs[i], "UpperFur", Strands(rng, OnSegment(rng, 600, new Vector3(0, 0.05f, 0), knee, upperRadius, kneeRadius),
                 new Vector3(0, -0.6f, 0.3f), 0.02f, 0.035f, FurRoot, FurTip, _hair, width: 0.018f, colouring: legColour));
 
+            // A swell of muscle where the leg meets the body: the shoulder blade in front, the big thigh behind.
+            var muscle = front ? new Vector3(0.07f, 0.1f, 0.09f) : new Vector3(0.09f, 0.11f, 0.11f);
+            var musclePosition = front ? new Vector3(0, -0.015f, 0) : new Vector3(0, -0.03f, 0.02f);
+            Attach(_upperLegs[i], "Muscle", Ellipsoid(muscle, 16, 10, spotted), musclePosition);
+            Attach(_upperLegs[i], "MuscleFur", Strands(rng, OnShape(rng, u => u * muscle + musclePosition, 450, u => u.X * side > -0.2f),
+                new Vector3(0, -0.6f, 0.3f), 0.02f, 0.035f, FurRoot, FurTip, _hair, width: 0.02f, colouring: legColour));
+
             _lowerLegs[i] = Pivot(_upperLegs[i], "Lower", knee);
-            Attach(_lowerLegs[i], "Joint", new SphereMesh { Radius = 0.045f, Height = 0.09f, Material = spotted });
+            Attach(_lowerLegs[i], "Joint", new SphereMesh { Radius = kneeRadius, Height = kneeRadius * 2f, Material = spotted });
             var ankle = new Vector3(0, -lowerLength, front ? -0.01f : -0.06f);
-            Attach(_lowerLegs[i], "Lower", Tube([Vector3.Zero, ankle], [0.042f, 0.036f], 12, spotted, capEnd: false));
-            Attach(_lowerLegs[i], "LowerFur", Strands(rng, OnSegment(rng, 250, Vector3.Zero, ankle, 0.042f, 0.036f),
+            float shinRadius = front ? 0.056f : 0.05f;
+            float ankleRadius = front ? 0.048f : 0.044f;
+            Attach(_lowerLegs[i], "Lower", Tube([Vector3.Zero, ankle], [shinRadius, ankleRadius], 12, spotted, capEnd: false));
+            Attach(_lowerLegs[i], "LowerFur", Strands(rng, OnSegment(rng, 350, Vector3.Zero, ankle, shinRadius, ankleRadius),
                 new Vector3(0, -0.6f, 0.3f), 0.015f, 0.025f, FurRoot, FurTip, _hair, width: 0.016f, colouring: legColour));
 
             // Big round paws, wide enough to spread the cat's weight on snow, furred all over.
-            var pawPosition = ankle + new Vector3(0, -0.005f, -0.025f);
-            var pawRadii = new Vector3(0.05f, 0.03f, 0.062f);
+            var pawPosition = ankle + new Vector3(0, 0.001f, -0.03f);
+            var pawRadii = new Vector3(0.062f, 0.036f, 0.076f);
             Attach(_lowerLegs[i], "Paw", Ellipsoid(pawRadii, 14, 10, spotted), pawPosition);
-            Attach(_lowerLegs[i], "PawFur", Strands(rng, OnShape(rng, u => u * pawRadii + pawPosition, 150, u => u.Y > -0.3f),
+            Attach(_lowerLegs[i], "PawFur", Strands(rng, OnShape(rng, u => u * pawRadii + pawPosition, 220, u => u.Y > -0.3f),
                 new Vector3(0, -0.3f, -0.2f), 0.012f, 0.022f, FurRoot, FurTip, _hair, width: 0.014f, colouring: legColour));
         }
 
-        // Tail: nearly as long as the body and thickly furred all the way, a chain of segments rooted on the rump
-        // so it can sway and curl. Rosettes give way to dark rings along its outer half, ending in a dark tip.
+        // Tail: nearly as long as the body and thickly furred all the way, a chain of segments rooted inside the
+        // rump so it grows out of the body, thick at its base, and can sway and curl. Rosettes give way to dark rings
+        // along its outer half, ending in a dark tip.
         _tail = new Node3D[TailSegments];
         Node3D parent = _frame;
-        var position = new Vector3(0, 0.58f, 0.46f);
+        var position = new Vector3(0, 0.5f, 0.38f);
         const float tailLength = TailSegments * TailSegmentLength;
+        static float TailRadius(int segment) => segment == 0 ? 0.06f : Mathf.Lerp(0.045f, 0.038f, segment / (float)TailSegments);
         for (int i = 0; i < TailSegments; i++)
         {
-            float top = Mathf.Lerp(0.045f, 0.038f, i / (float)TailSegments);
-            float bottom = Mathf.Lerp(0.045f, 0.038f, (i + 1) / (float)TailSegments);
+            float top = TailRadius(i);
+            float bottom = TailRadius(i + 1);
             float start = i * TailSegmentLength;
             Color TailColour(Vector3 p, Vector3 n)
             {
@@ -275,10 +261,12 @@ public partial class SnowLeopard : Animal
             }
 
             _tail[i] = Pivot(parent, "Tail", position);
-            Attach(_tail[i], "Joint", new SphereMesh { Radius = top, Height = top * 2f, Material = coat });
+            // The root is buried in the rump; every other joint is rounded so the tail bends smoothly.
+            if (i > 0)
+                Attach(_tail[i], "Joint", new SphereMesh { Radius = top, Height = top * 2f, Material = coat });
             Attach(_tail[i], "Segment", Tube(
                 [Vector3.Zero, Vector3.Down * TailSegmentLength], [top, bottom], 10, coat, capEnd: i == TailSegments - 1));
-            Attach(_tail[i], "Fluff", Strands(rng, OnTube(rng, 220, top * 0.9f, 0f, -TailSegmentLength), new Vector3(0, -0.6f, 0),
+            Attach(_tail[i], "Fluff", Strands(rng, OnTube(rng, 220, Mathf.Min(top, bottom) * 0.9f, 0f, -TailSegmentLength), new Vector3(0, -0.6f, 0),
                 0.04f, 0.06f, FurRoot, FurTip, _hair, width: 0.02f, colouring: TailColour));
             parent = _tail[i];
             position = Vector3.Down * TailSegmentLength;
@@ -286,69 +274,144 @@ public partial class SnowLeopard : Animal
     }
 
     /// <summary>
-    /// A small, round cat's head: a domed skull with wide furred cheeks, a short broad nose and pale whisker pads,
-    /// pale almond eyes with round pupils set into the face behind dark rims, and small rounded ears set wide.
+    /// A small, round cat's head: a domed skull with wide furred cheeks and a broad, straight nose bridge running down
+    /// to a wide, heart-shaped nose. Spotted whisker pads sit either side of a dark philtrum above a black lip line and
+    /// a pale chin. Pale grey-green almond eyes with round pupils sit flush in the face, lined in black and framed by
+    /// pale fur, under small, rounded, cupped ears set wide, black-rimmed on the back with a smoky grey centre.
     /// </summary>
-    private void BuildHead(Node3D head, RandomNumberGenerator rng, Material spotted, Func<Vector3, Vector3, Color> spotColour,
-        Material pale, Material nose, Material iris, Material limbus, Material rim, Material pupil, Material earBack)
+    private void BuildHead(Node3D head, RandomNumberGenerator rng, StandardMaterial3D spotted, Func<Vector3, Vector3, Color> spotColour)
     {
+        // The face keeps the head's spots, shaded by vertex colour into its paler and darker markings.
+        var face = (StandardMaterial3D)spotted.Duplicate();
+        face.VertexColorUseAsAlbedo = true;
+        var nose = new StandardMaterial3D { AlbedoColor = new Color(0.56f, 0.45f, 0.44f), Roughness = 0.45f };
+        var nostril = new StandardMaterial3D { AlbedoColor = new Color(0.08f, 0.05f, 0.05f), Roughness = 0.6f };
+        // Pale grey-green irises darkening to a ring at their edge, under a clear glossy cornea that catches the light.
+        var iris = new StandardMaterial3D
+        {
+            AlbedoColor = new Color(0.7f, 0.73f, 0.6f), Roughness = 0.3f,
+            ClearcoatEnabled = true, Clearcoat = 1f, ClearcoatRoughness = 0f,
+        };
+        var limbus = new StandardMaterial3D
+        {
+            AlbedoColor = new Color(0.4f, 0.42f, 0.32f), Roughness = 0.3f,
+            ClearcoatEnabled = true, Clearcoat = 1f, ClearcoatRoughness = 0f,
+        };
+        var rim = new StandardMaterial3D { AlbedoColor = new Color(0.04f, 0.035f, 0.035f), Roughness = 0.5f };
+        var pupil = new StandardMaterial3D
+        {
+            AlbedoColor = new Color(0.01f, 0.01f, 0.01f), Roughness = 0.2f,
+            ClearcoatEnabled = true, Clearcoat = 1f, ClearcoatRoughness = 0f,
+        };
+        var catchlight = new StandardMaterial3D { AlbedoColor = Colors.White, ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded };
+        var earBack = new StandardMaterial3D { VertexColorUseAsAlbedo = true, Roughness = 1f };
+        var earInside = new StandardMaterial3D { AlbedoColor = new Color(0.78f, 0.76f, 0.73f), Roughness = 1f };
+
+        // Smoky grey forehead and crown, pale around the eyes, and a faint dark streak back from each eye's outer corner.
         var skull = new Vector3(0.085f, 0.072f, 0.09f);
-        Attach(head, "Skull", Ellipsoid(skull, 24, 16, spotted));
+        Attach(head, "Skull", Ellipsoid(skull, 32, 20, face, (p, _) =>
+        {
+            float x = Mathf.Abs(p.X);
+            float pale = Mathf.Max(Blob(new Vector3(x, p.Y, p.Z), new Vector3(0.036f, -0.006f, -0.072f), new Vector3(0.024f, 0.009f, 0.03f)),
+                Blob(new Vector3(x, p.Y, p.Z), new Vector3(0.033f, 0.023f, -0.07f), new Vector3(0.02f, 0.007f, 0.03f)));
+            float streak = Blob(new Vector3(x, p.Y, p.Z), new Vector3(0.06f, -0.012f, -0.052f), new Vector3(0.007f, 0.016f, 0.014f));
+            return Grey(0.86f).Lerp(Colors.White, pale).Lerp(Grey(0.45f), streak * 0.6f);
+        }));
         Attach(head, "SkullFur", Strands(rng, OnShape(rng, u => u * skull, 900, u => u.Z > -0.65f), CoatDrift,
             0.012f, 0.022f, FurRoot, FurTip, _hair, width: 0.012f, colouring: spotColour));
 
         // Cheeks flare out below and behind the eyes into a ruff of longer, paler fur.
         var cheeks = new Vector3(0.08f, 0.05f, 0.06f);
         var cheekPosition = new Vector3(0, -0.028f, -0.03f);
-        Attach(head, "Cheeks", Ellipsoid(cheeks, 20, 12, spotted), cheekPosition);
+        Attach(head, "Cheeks", Ellipsoid(cheeks, 20, 12, face, (_, n) => Grey(0.88f).Lerp(Colors.White, Mathf.SmoothStep(0f, -0.6f, n.Y))),
+            cheekPosition);
         Attach(head, "CheekFur", Strands(rng, OnShape(rng, u => u * cheeks + cheekPosition, 500, u => Mathf.Abs(u.X) > 0.5f && u.Z > -0.6f),
             new Vector3(0, -0.4f, 0.6f), 0.02f, 0.035f, FurRoot, FurTip, _hair, width: 0.012f,
             colouring: (p, n) => spotColour(p, n).Lerp(Cream, Mathf.SmoothStep(0f, -0.5f, n.Y))));
 
-        // Muzzle: a broad nose bridge running down to a pink-grey nose, pale whisker pads either side and a pale chin.
-        Attach(head, "Bridge", Ellipsoid(new Vector3(0.026f, 0.024f, 0.05f), 14, 10, spotted), new Vector3(0, -0.008f, -0.07f));
-        Attach(head, "Chin", Ellipsoid(new Vector3(0.022f, 0.014f, 0.024f), 12, 8, pale), new Vector3(0, -0.06f, -0.088f));
-        Attach(head, "Nose", Ellipsoid(new Vector3(0.014f, 0.008f, 0.009f), 10, 8, nose), new Vector3(0, -0.016f, -0.122f));
+        // The muzzle hangs off a pivot where it meets the face, so it can be drawn smaller than it is modelled.
+        var muzzle = Pivot(head, "Muzzle", new Vector3(0, -0.03f, -0.07f));
+        muzzle.Scale = Vector3.One * MuzzleScale;
+
+        // A broad, straight nose bridge running from the forehead down to the nose.
+        Attach(muzzle, "Bridge", Ellipsoid(new Vector3(0.03f, 0.024f, 0.056f), 16, 10, face, (_, _) => Grey(0.9f)),
+            new Vector3(0, 0.026f, 0.004f));
+
+        // A wide nose, broadest at the top and narrowing to a point above the philtrum, with dark nostrils at its sides.
+        var nosePosition = new Vector3(0, 0.013f, -0.05f);
+        Attach(muzzle, "Nose", Ellipsoid(u => new Vector3(u.X * 0.0125f * (0.7f + 0.4f * Mathf.Max(u.Y, -0.5f)), u.Y * 0.0085f, u.Z * 0.009f),
+            14, 10, nose), nosePosition);
+
+        // Pale chin, its top edge the dark lower lip.
+        var chinPosition = new Vector3(0, -0.026f, -0.016f);
+        Attach(muzzle, "Chin", Ellipsoid(new Vector3(0.018f, 0.011f, 0.019f), 14, 8, face,
+            (_, n) => Colors.White.Lerp(Grey(0.15f), Mathf.SmoothStep(0.55f, 0.8f, n.Y))), chinPosition);
+
         foreach (float side in new[] { -1f, 1f })
         {
-            var pad = new Vector3(0.026f, 0.022f, 0.028f);
-            var padPosition = new Vector3(side * 0.018f, -0.036f, -0.1f);
-            Attach(head, "WhiskerPad", Ellipsoid(pad, 12, 8, pale), padPosition);
-            Attach(head, "Whiskers", Strands(rng, OnShape(rng, u => u * pad + padPosition, 14, u => u.X * side > 0.5f && u.Z < 0.2f),
+            Attach(muzzle, "Nostril", Ellipsoid(new Vector3(0.0028f, 0.0014f, 0.0022f), 8, 6, nostril),
+                nosePosition + new Vector3(side * 0.0048f, -0.0042f, -0.0052f));
+
+            // Whisker pads, pale and dotted with the spots the whiskers grow from, edged underneath by the black upper
+            // lip and meeting in the middle at a dark philtrum running down from the nose.
+            var pad = new Vector3(0.022f, 0.0145f, 0.022f);
+            var padPosition = new Vector3(side * 0.016f, -0.008f, -0.027f);
+            Attach(muzzle, "WhiskerPad", Ellipsoid(pad, 16, 10, face, (p, n) =>
+            {
+                float lip = Mathf.SmoothStep(-0.65f, -0.85f, n.Y);
+                float philtrum = Mathf.SmoothStep(0.004f, 0.0015f, Mathf.Abs(p.X + padPosition.X)) * Mathf.SmoothStep(0f, 0.3f, -n.Z);
+                return Colors.White.Lerp(Grey(0.15f), Mathf.Max(lip, philtrum));
+            }), padPosition);
+            Attach(muzzle, "Whiskers", Strands(rng, OnShape(rng, u => u * pad + padPosition, 14, u => u.X * side > 0.5f && u.Z < 0.2f),
                 new Vector3(side * 0.4f, 0.2f, 0.3f), 0.06f, 0.09f, Cream, Colors.White, _hair, width: 0.003f));
 
-            // Eyes look forward and a little outward, slanting up towards their outer corners, and sit deep in the
-            // face so only the front of each shows.
-            var socket = Pivot(head, "Eye", new Vector3(side * 0.037f, 0.011f, -0.07f));
-            socket.Rotation = new Vector3(0, -side * 0.3f, side * 0.2f);
+            // Big, round, soft eyes look forward and a little outward, barely slanted, and sit flush in the face. A thin
+            // black liner rings each one; the iris fills the eye, darkening to a ring at its edge where the eyeball
+            // curves away, around a large round pupil that catches a bright point of light.
+            var socket = Pivot(head, "Eye", new Vector3(side * 0.041f, 0.012f, -0.067f));
+            socket.Rotation = new Vector3(0, -side * 0.3f, side * 0.04f);
             socket.Scale = Vector3.One * EyeScale;
-            // A thin black liner rings each eye, set in a patch of pale fur above and below. The iris shows a darker
-            // ring at its edge where the eyeball curves away, around a round black pupil.
-            Attach(socket, "Lid", Ellipsoid(new Vector3(0.024f, 0.006f, 0.007f), 14, 8, pale), new Vector3(0, -0.012f, -0.004f));
-            Attach(socket, "Brow", Ellipsoid(new Vector3(0.02f, 0.005f, 0.006f), 14, 8, pale), new Vector3(0.002f, 0.012f, -0.003f));
-            Attach(socket, "Rim", Ellipsoid(new Vector3(0.02f, 0.013f, 0.014f), 16, 10, rim));
-            Attach(socket, "Eyeball", Ellipsoid(new Vector3(0.017f, 0.0115f, 0.015f), 20, 12, limbus), new Vector3(0, 0, -0.002f));
-            Attach(socket, "Iris", Ellipsoid(new Vector3(0.0145f, 0.0102f, 0.015f), 20, 12, iris), new Vector3(0, 0, -0.0025f));
-            Attach(socket, "Pupil", Ellipsoid(new Vector3(0.006f, 0.006f, 0.002f), 14, 8, pupil), new Vector3(0, 0, -0.0165f));
+            Attach(socket, "Rim", Ellipsoid(Almond(new Vector3(0.0192f, 0.0142f, 0.009f)), 20, 12, rim));
+            Attach(socket, "Eyeball", Ellipsoid(Almond(new Vector3(0.0168f, 0.0124f, 0.009f)), 20, 12, limbus), new Vector3(0, 0, -0.0015f));
+            Attach(socket, "Iris", Ellipsoid(Almond(new Vector3(0.0142f, 0.0112f, 0.009f)), 20, 12, iris), new Vector3(0, 0, -0.0025f));
+            Attach(socket, "Pupil", Ellipsoid(new Vector3(0.0056f, 0.0058f, 0.0012f), 16, 10, pupil), new Vector3(0, 0, -0.0111f));
+            Attach(socket, "Catchlight", Ellipsoid(new Vector3(0.0019f, 0.0019f, 0.0006f), 10, 6, catchlight), new Vector3(0.0035f, 0.004f, -0.0117f));
         }
 
-        // Small, rounded ears set wide and tipped outward, dark on the back with pale, furred insides.
+        // Small, rounded ears set wide and turned a little outward, cupped forward, black around the back's rim with a
+        // smoky grey centre, and pale grey, tufted insides.
         _ears = new Node3D[2];
+        var flap = new Vector3(0.026f, 0.025f, 0.008f);
+        Func<Vector3, Vector3> Cupped(Vector3 radii) => u => u * radii + new Vector3(0, 0, -0.008f * u.X * u.X);
         for (int i = 0; i < 2; i++)
         {
             float side = i == 0 ? -1f : 1f;
-            _ears[i] = Pivot(head, "Ear", new Vector3(side * 0.057f, 0.052f, 0.02f));
+            _ears[i] = Pivot(head, "Ear", new Vector3(side * 0.056f, 0.05f, 0.022f));
             var tilt = Pivot(_ears[i], "Tilt", Vector3.Zero);
-            tilt.Rotation = new Vector3(-0.2f, -side * 0.4f, -side * 0.5f);
+            tilt.Rotation = new Vector3(-0.15f, -side * 0.5f, -side * 0.45f);
             tilt.Scale = Vector3.One * EarScale;
-            Attach(tilt, "Flap", Ellipsoid(new Vector3(0.032f, 0.03f, 0.009f), 12, 8, earBack), new Vector3(0, 0.022f, 0));
-            var inner = new Vector3(0.024f, 0.022f, 0.004f);
-            var innerPosition = new Vector3(0, 0.02f, -0.007f);
-            Attach(tilt, "Inside", Ellipsoid(inner, 12, 8, pale), innerPosition);
-            Attach(tilt, "Tuft", Strands(rng, OnShape(rng, u => u * inner + innerPosition, 25, u => u.Z < 0f && u.Y < 0.5f),
-                new Vector3(0, 0.2f, -0.6f), 0.008f, 0.014f, Cream, Colors.White, _hair, width: 0.006f));
+            var flapPosition = new Vector3(0, 0.018f, 0);
+            Attach(tilt, "Flap", Ellipsoid(Cupped(flap), 16, 10, earBack, (p, _) =>
+            {
+                float edge = Mathf.Sqrt(p.X * p.X / (flap.X * flap.X) + p.Y * p.Y / (flap.Y * flap.Y));
+                return Grey(0.42f).Lerp(Grey(0.06f), Mathf.SmoothStep(0.45f, 0.75f, edge));
+            }), flapPosition);
+            var inner = new Vector3(0.02f, 0.019f, 0.004f);
+            var innerPosition = flapPosition + new Vector3(0, -0.002f, -0.006f);
+            Attach(tilt, "Inside", Ellipsoid(Cupped(inner), 12, 8, earInside), innerPosition);
+            Attach(tilt, "Tuft", Strands(rng, OnShape(rng, u => Cupped(inner)(u) + innerPosition, 40, u => u.Z < 0f && u.Y < 0.4f),
+                new Vector3(0, 0.3f, -0.5f), 0.01f, 0.016f, Cream, Colors.White, _hair, width: 0.006f));
         }
     }
+
+    private static Color Grey(float value) => new(value, value, value);
+
+    /// <summary>1 at <paramref name="centre"/>, falling off smoothly over about <paramref name="radii"/> in each direction.</summary>
+    private static float Blob(Vector3 p, Vector3 centre, Vector3 radii) => Mathf.Exp(-((p - centre) / radii).LengthSquared());
+
+    /// <summary>An ellipsoid that narrows towards its left and right ends, for the almond shape of a cat's eye.</summary>
+    private static Func<Vector3, Vector3> Almond(Vector3 radii) =>
+        u => new Vector3(u.X * radii.X, u.Y * radii.Y * (1f - 0.35f * u.X * u.X), u.Z * radii.Z);
 
     /// <summary>Long low body, deeper and a little broader through the chest, and higher over the rump.</summary>
     private static Vector3 BodyShape(Vector3 u)
