@@ -19,7 +19,11 @@ public partial class SnowLeopard : Animal
     private const float HeadDownAngle = -1.3f;
 
     /// <summary>How much bigger the whole head (skull, face, ears and fur) is drawn than it is modelled.</summary>
-    private const float HeadScale = 1.15f;
+    private const float HeadScale = 1.6f;
+
+    // How much bigger the eyes and ears are drawn than they are modelled, on top of the head's own scale.
+    private const float EyeScale = 1.3f;
+    private const float EarScale = 1.4f;
 
     // How far the body sinks and tips forward while drinking, with the forelegs folding to keep the paws planted.
     private const float CrouchDrop = 0.1f;
@@ -164,9 +168,23 @@ public partial class SnowLeopard : Animal
         var spotted = ProceduralTextures.SpottedFur(Seed + 1, dark, light, centre, Spot, scale: 4f, rosettes: false);
         var pale = new StandardMaterial3D { AlbedoColor = Cream, Roughness = 1f };
         var nose = new StandardMaterial3D { AlbedoColor = new Color(0.5f, 0.4f, 0.4f), Roughness = 0.5f };
-        var eye = new StandardMaterial3D { AlbedoColor = new Color(0.66f, 0.71f, 0.58f), Roughness = 0.08f };
-        var rim = new StandardMaterial3D { AlbedoColor = new Color(0.07f, 0.06f, 0.06f), Roughness = 0.6f };
-        var pupil = new StandardMaterial3D { AlbedoColor = new Color(0.02f, 0.02f, 0.02f), Roughness = 0.05f };
+        // Pale grey-green irises darkening to a ring at their edge, under a clear glossy cornea that catches the light.
+        var iris = new StandardMaterial3D
+        {
+            AlbedoColor = new Color(0.7f, 0.74f, 0.6f), Roughness = 0.35f,
+            ClearcoatEnabled = true, Clearcoat = 1f, ClearcoatRoughness = 0f,
+        };
+        var limbus = new StandardMaterial3D
+        {
+            AlbedoColor = new Color(0.34f, 0.38f, 0.3f), Roughness = 0.35f,
+            ClearcoatEnabled = true, Clearcoat = 1f, ClearcoatRoughness = 0f,
+        };
+        var rim = new StandardMaterial3D { AlbedoColor = new Color(0.04f, 0.035f, 0.035f), Roughness = 0.5f };
+        var pupil = new StandardMaterial3D
+        {
+            AlbedoColor = new Color(0.01f, 0.01f, 0.01f), Roughness = 0.2f,
+            ClearcoatEnabled = true, Clearcoat = 1f, ClearcoatRoughness = 0f,
+        };
         var earBack = new StandardMaterial3D { AlbedoColor = new Color(0.22f, 0.21f, 0.2f), Roughness = 1f };
         _hair = HairMaterial();
 
@@ -191,16 +209,16 @@ public partial class SnowLeopard : Animal
         Attach(body, "Ruff", Strands(rng, OnShape(rng, BodyShape, 700, u => u.Z < -0.6f && u.Y < 0.3f), new Vector3(0, -0.8f, 0.2f),
             0.035f, 0.055f, FurRoot, FurTip, _hair, width: 0.022f, colouring: bodyColour));
 
-        // Head carried low on a short, thick neck that bends at the shoulders to drink.
-        _neck = Pivot(_frame, "Neck", new Vector3(0, 0.55f, -0.37f));
-        var headPosition = new Vector3(0, 0.03f, -0.18f);
+        // Head held up on a short, thick neck that angles upward from the shoulders and bends down to drink.
+        _neck = Pivot(_frame, "Neck", new Vector3(0, 0.49f, -0.37f));
+        var headPosition = new Vector3(0, 0.13f, -0.17f);
         Attach(_neck, "Joint", new SphereMesh { Radius = 0.11f, Height = 0.22f, Material = coat });
         Attach(_neck, "Throat", Tube([Vector3.Zero, headPosition], [0.11f, 0.07f], 12, coat, capEnd: false));
         Attach(_neck, "ThroatFur", Strands(rng, OnSegment(rng, 800, Vector3.Zero, headPosition, 0.11f, 0.07f), CoatDrift,
             0.025f, 0.04f, FurRoot, FurTip, _hair, width: 0.022f, colouring: Underneath(spotColour, 0f, -0.5f)));
         var head = _head = Pivot(_neck, "Head", headPosition);
         head.Scale = Vector3.One * HeadScale;
-        BuildHead(head, rng, spotted, spotColour, pale, nose, eye, rim, pupil, earBack);
+        BuildHead(head, rng, spotted, spotColour, pale, nose, iris, limbus, rim, pupil, earBack);
 
         // Legs: an upper and lower segment each, ending in a broad, furry paw. The forelegs are thick straight
         // columns; the hind legs have a big muscular thigh and a hock that angles back.
@@ -272,7 +290,7 @@ public partial class SnowLeopard : Animal
     /// pale almond eyes with round pupils set into the face behind dark rims, and small rounded ears set wide.
     /// </summary>
     private void BuildHead(Node3D head, RandomNumberGenerator rng, Material spotted, Func<Vector3, Vector3, Color> spotColour,
-        Material pale, Material nose, Material eye, Material rim, Material pupil, Material earBack)
+        Material pale, Material nose, Material iris, Material limbus, Material rim, Material pupil, Material earBack)
     {
         var skull = new Vector3(0.085f, 0.072f, 0.09f);
         Attach(head, "Skull", Ellipsoid(skull, 24, 16, spotted));
@@ -301,11 +319,17 @@ public partial class SnowLeopard : Animal
 
             // Eyes look forward and a little outward, slanting up towards their outer corners, and sit deep in the
             // face so only the front of each shows.
-            var socket = Pivot(head, "Eye", new Vector3(side * 0.034f, 0.01f, -0.071f));
+            var socket = Pivot(head, "Eye", new Vector3(side * 0.037f, 0.011f, -0.07f));
             socket.Rotation = new Vector3(0, -side * 0.3f, side * 0.2f);
+            socket.Scale = Vector3.One * EyeScale;
+            // A thin black liner rings each eye, set in a patch of pale fur above and below. The iris shows a darker
+            // ring at its edge where the eyeball curves away, around a round black pupil.
+            Attach(socket, "Lid", Ellipsoid(new Vector3(0.024f, 0.006f, 0.007f), 14, 8, pale), new Vector3(0, -0.012f, -0.004f));
+            Attach(socket, "Brow", Ellipsoid(new Vector3(0.02f, 0.005f, 0.006f), 14, 8, pale), new Vector3(0.002f, 0.012f, -0.003f));
             Attach(socket, "Rim", Ellipsoid(new Vector3(0.02f, 0.013f, 0.014f), 16, 10, rim));
-            Attach(socket, "Eyeball", Ellipsoid(new Vector3(0.017f, 0.0115f, 0.015f), 16, 10, eye), new Vector3(0, 0, -0.002f));
-            Attach(socket, "Pupil", Ellipsoid(new Vector3(0.0065f, 0.0065f, 0.003f), 10, 8, pupil), new Vector3(0, 0, -0.0155f));
+            Attach(socket, "Eyeball", Ellipsoid(new Vector3(0.017f, 0.0115f, 0.015f), 20, 12, limbus), new Vector3(0, 0, -0.002f));
+            Attach(socket, "Iris", Ellipsoid(new Vector3(0.0145f, 0.0102f, 0.015f), 20, 12, iris), new Vector3(0, 0, -0.0025f));
+            Attach(socket, "Pupil", Ellipsoid(new Vector3(0.006f, 0.006f, 0.002f), 14, 8, pupil), new Vector3(0, 0, -0.0165f));
         }
 
         // Small, rounded ears set wide and tipped outward, dark on the back with pale, furred insides.
@@ -313,9 +337,10 @@ public partial class SnowLeopard : Animal
         for (int i = 0; i < 2; i++)
         {
             float side = i == 0 ? -1f : 1f;
-            _ears[i] = Pivot(head, "Ear", new Vector3(side * 0.055f, 0.05f, 0.02f));
+            _ears[i] = Pivot(head, "Ear", new Vector3(side * 0.057f, 0.052f, 0.02f));
             var tilt = Pivot(_ears[i], "Tilt", Vector3.Zero);
             tilt.Rotation = new Vector3(-0.2f, -side * 0.4f, -side * 0.5f);
+            tilt.Scale = Vector3.One * EarScale;
             Attach(tilt, "Flap", Ellipsoid(new Vector3(0.032f, 0.03f, 0.009f), 12, 8, earBack), new Vector3(0, 0.022f, 0));
             var inner = new Vector3(0.024f, 0.022f, 0.004f);
             var innerPosition = new Vector3(0, 0.02f, -0.007f);
