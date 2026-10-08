@@ -1,0 +1,7 @@
+# Godot cache, imports and C# build output
+.godot/
+
+# IDE files
+.vs/
+.idea/
+*.user
