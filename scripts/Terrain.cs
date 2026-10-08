@@ -298,7 +298,7 @@ public partial class Terrain : Node3D
         }
 
         // Trunks are solid so animals can't walk through trees.
-        var trunkShape = new CylinderShape3D { Radius = 0.45f, Height = 4f };
+        var trunkShape = new CylinderShape3D { Radius = 0.6f, Height = 6f };
         var bodies = new StaticBody3D { Name = "TreeBodies" };
         float range = HalfSize * 0.85f;
         int placed = 0;
@@ -331,7 +331,7 @@ public partial class Terrain : Node3D
             placements[rng.RandiRange(0, TreeVariants - 1)].Add((
                 new Transform3D(basis, new Vector3(x, h - 0.2f, z)),
                 new Color(brightness, brightness, brightness)));
-            bodies.AddChild(new CollisionShape3D { Shape = trunkShape, Position = new Vector3(x, h + 2f, z) });
+            bodies.AddChild(new CollisionShape3D { Shape = trunkShape, Position = new Vector3(x, h + 3f, z) });
             placed++;
         }
 
