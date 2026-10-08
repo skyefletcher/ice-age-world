@@ -12,10 +12,19 @@ public partial class Player
     /// <summary>How fast flapping climbs, and how fast a glide and a dive sink, in metres a second.</summary>
     private const float FlapClimbRate = 4.5f;
     private const float GlideSinkRate = 1.2f;
-    private const float DiveSinkRate = 12f;
+    private const float DiveSinkRate = 65f;
+
+    /// <summary>
+    /// A diving bird folds its wings and stoops on its prey far faster than it can fly level: this many times its
+    /// cruising speed, faster than any other animal alive. It gets up to speed in about a second, and air resistance
+    /// soon slows it again after.
+    /// </summary>
+    private const float DiveSpeedFactor = 9f;
+    private const float DiveAcceleration = 70f;
+    private const float DiveSlowing = 25f;
 
     /// <summary>Above this height over the ground the air is too thin to climb any further.</summary>
-    private const float MaxFlightHeight = 70f;
+    private const float MaxFlightHeight = 150f;
 
     /// <summary>Seconds after taking off before touching the ground counts as landing, so the bird can get clear first.</summary>
     private const float TakeOffGrace = 0.5f;
@@ -54,16 +63,20 @@ public partial class Player
 
         // Wings bite harder the faster the bird flies, so it picks up speed when diving and loses it when climbing.
         float cruise = direction != Vector3.Zero ? Stats.FlySpeed : Stats.FlySpeed * 0.6f;
-        float targetSpeed = diving ? Stats.FlySpeed * 1.7f : cruise;
+        float targetSpeed = diving ? Stats.FlySpeed * DiveSpeedFactor : cruise;
         float climb = flapping ? FlapClimbRate : diving ? -DiveSinkRate : -GlideSinkRate;
 
         float ground = Terrain?.GetHeight(GlobalPosition.X, GlobalPosition.Z) ?? 0f;
         if (GlobalPosition.Y - ground > MaxFlightHeight)
             climb = Mathf.Min(climb, 0f);
 
-        float speed = Mathf.MoveToward(new Vector2(velocity.X, velocity.Z).Length(), targetSpeed, Stats.Acceleration * 0.5f * dt);
+        float speed = new Vector2(velocity.X, velocity.Z).Length();
+        float acceleration = diving ? DiveAcceleration : speed > targetSpeed ? DiveSlowing : Stats.Acceleration * 0.5f;
+        speed = Mathf.MoveToward(speed, targetSpeed, acceleration * dt);
         var horizontal = Forward(yaw) * speed;
-        velocity = new Vector3(horizontal.X, Mathf.MoveToward(velocity.Y, climb, 10f * dt), horizontal.Z);
+        // Spreading the wings again pulls out of a dive as sharply as folding them dropped into it.
+        float pull = diving || velocity.Y < climb ? DiveAcceleration : 10f;
+        velocity = new Vector3(horizontal.X, Mathf.MoveToward(velocity.Y, climb, pull * dt), horizontal.Z);
 
         UpdateNeeds(dt, exerting: flapping);
         UpdateStamina(dt, effort: flapping ? 1f : 0f);
