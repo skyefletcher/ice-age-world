@@ -76,7 +76,11 @@ public abstract partial class Animal : Node3D
         var dTheta = shape(Direction(theta + e, phi)) - p;
         var dPhi = shape(Direction(theta, phi + e)) - p;
         var n = dPhi.Cross(dTheta);
-        return n.LengthSquared() > 1e-12f ? n.Normalized() : (phi > 0 ? Vector3.Up : Vector3.Down);
+
+        // Only at the poles, where dTheta vanishes, is the cross product too short to trust. The test is relative
+        // to the shape's size so small shapes, whose differences are tiny anyway, still get proper normals.
+        float reach = dPhi.LengthSquared();
+        return n.LengthSquared() > reach * reach * 1e-6f ? n.Normalized() : (phi > 0 ? Vector3.Up : Vector3.Down);
     }
 
     /// <summary>A sphere pushed through <paramref name="shape"/>, which maps unit directions to surface points.</summary>
@@ -188,14 +192,17 @@ public abstract partial class Animal : Node3D
     /// Hair: a thin, two-segment strand at each root, drifting in <paramref name="drift"/>'s direction and
     /// bending down under its own weight, shading from <paramref name="rootColour"/> to <paramref name="tipColour"/>.
     /// Strands take the normal of the surface beneath them so they are lit like that surface rather than as
-    /// individual slivers.
+    /// individual slivers. When <paramref name="colouring"/> is given, both colours are multiplied by its colour at
+    /// each root, so the hair can carry the coat's pattern.
     /// </summary>
     protected static ArrayMesh Strands(RandomNumberGenerator rng, List<(Vector3 Root, Vector3 Normal)> roots, Vector3 drift,
-        float minLength, float maxLength, Color rootColour, Color tipColour, Material hair, float width = 0.07f)
+        float minLength, float maxLength, Color rootColour, Color tipColour, Material hair, float width = 0.07f,
+        Func<Vector3, Vector3, Color>? colouring = null)
     {
         var mesh = new MeshBuilder();
         foreach (var (root, normal) in roots)
         {
+            var under = colouring?.Invoke(root, normal) ?? Colors.White;
             float length = rng.RandfRange(minLength, maxLength);
             var jitter = new Vector3(rng.RandfRange(-1f, 1f), rng.RandfRange(-1f, 1f), rng.RandfRange(-1f, 1f)) * 0.2f;
             var direction = (normal * 0.35f + drift + jitter).Normalized();
@@ -208,9 +215,9 @@ public abstract partial class Animal : Node3D
                 side = direction.Cross(Vector3.Right).Normalized();
 
             float shade = rng.RandfRange(0.8f, 1.2f);
-            var rootShade = Shade(rootColour, shade);
-            var midShade = Shade(rootColour.Lerp(tipColour, 0.5f), shade);
-            var tipShade = Shade(tipColour, shade);
+            var rootShade = Shade(rootColour * under, shade);
+            var midShade = Shade(rootColour.Lerp(tipColour, 0.5f) * under, shade);
+            var tipShade = Shade(tipColour * under, shade);
 
             int r0 = mesh.Add(root - side * width * 0.5f, normal, rootShade, new Vector2(0, 0));
             int r1 = mesh.Add(root + side * width * 0.5f, normal, rootShade, new Vector2(0, 0));

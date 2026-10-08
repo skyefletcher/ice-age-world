@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Godot;
 
@@ -50,12 +51,13 @@ public static class ProceduralTextures
 
     /// <summary>
     /// Snow leopard coat: pale smoky fur scattered with broken dark rosettes around tawny centres, and small
-    /// solid spots between them.
+    /// solid spots between them. Without <paramref name="rosettes"/> it has only solid spots, as on the head and legs.
     /// </summary>
-    public static StandardMaterial3D SpottedFur(int seed, Color dark, Color light, Color centre, Color spot, float scale)
+    public static StandardMaterial3D SpottedFur(int seed, Color dark, Color light, Color centre, Color spot, float scale,
+        bool rosettes = true)
     {
         var heights = HeightField(seed, stretch: 6, streakFrequency: 0.06f, grainWeight: 0.4f);
-        var (ring, inside) = Rosettes(seed);
+        var (ring, inside) = Rosettes(seed, rosettes);
         var (albedo, normal) = Textures(heights,
             (i, h) => dark.Lerp(light, h).Lerp(centre, inside[i] * 0.7f).Lerp(spot, ring[i] * 0.8f), bumpStrength: 4f);
         return new StandardMaterial3D
@@ -66,7 +68,32 @@ public static class ProceduralTextures
             NormalScale = 0.6f,
             Uv1Triplanar = true,
             Uv1Scale = Vector3.One * scale,
+            // Blend sharply between the three projections so rosettes on curved flanks are not smeared into streaks.
+            Uv1TriplanarSharpness = 6f,
             Roughness = 1f,
+        };
+    }
+
+    /// <summary>
+    /// The colour a triplanar material's albedo shows at a point on a mesh with the given normal, worked out the
+    /// way the material's shader does, so hair grown from that point can take the colour of the hide beneath it.
+    /// </summary>
+    public static Func<Vector3, Vector3, Color> Colouring(StandardMaterial3D material)
+    {
+        var image = material.AlbedoTexture.GetImage();
+        int width = image.GetWidth(), height = image.GetHeight();
+        var scale = material.Uv1Scale;
+        float sharpness = material.Uv1TriplanarSharpness;
+
+        Color At(float u, float v) =>
+            image.GetPixel(Mathf.PosMod(Mathf.FloorToInt(u * width), width), Mathf.PosMod(Mathf.FloorToInt(v * height), height));
+
+        return (position, normal) =>
+        {
+            var p = position * scale * new Vector3(1, -1, 1);
+            var w = new Vector3(Mathf.Pow(Mathf.Abs(normal.X), sharpness), Mathf.Pow(Mathf.Abs(normal.Y), sharpness), Mathf.Pow(Mathf.Abs(normal.Z), sharpness));
+            w /= w.X + w.Y + w.Z;
+            return At(p.X, p.Y) * w.Z + At(p.Z, p.Y) * w.X + At(p.X, -p.Z) * w.Y;
         };
     }
 
@@ -74,19 +101,21 @@ public static class ProceduralTextures
     /// Masks for a tileable rosette pattern: <c>Ring</c> is 1 on the dark rosette rims and solid spots, and
     /// <c>Inside</c> is 1 within each rosette. Distances wrap around the tile's edges so the pattern stays seamless.
     /// </summary>
-    private static (float[] Ring, float[] Inside) Rosettes(int seed)
+    private static (float[] Ring, float[] Inside) Rosettes(int seed, bool rosettes)
     {
         var rng = new RandomNumberGenerator { Seed = (ulong)seed };
         var spots = new List<(float X, float Y, float Radius, float Phase, bool Rosette)>();
 
-        // Rosettes on a jittered grid so they spread evenly, with small spots scattered between them.
+        // Rosettes (or, without them, larger solid spots) on a jittered grid so they spread evenly, with small
+        // spots scattered between them.
         const int grid = 5;
         const float cell = Size / (float)grid;
         for (int gy = 0; gy < grid; gy++)
         for (int gx = 0; gx < grid; gx++)
         {
-            spots.Add(((gx + rng.RandfRange(0.2f, 0.8f)) * cell, (gy + rng.RandfRange(0.2f, 0.8f)) * cell,
-                rng.RandfRange(13f, 19f), rng.Randf() * Mathf.Tau, true));
+            float x = (gx + rng.RandfRange(0.2f, 0.8f)) * cell, y = (gy + rng.RandfRange(0.2f, 0.8f)) * cell;
+            float radius = rng.RandfRange(13f, 19f), phase = rng.Randf() * Mathf.Tau;
+            spots.Add(rosettes ? (x, y, radius, phase, true) : (x, y, radius * 0.4f, 0f, false));
             spots.Add(((gx + rng.Randf()) * cell, (gy + rng.Randf()) * cell, rng.RandfRange(2.5f, 5f), 0f, false));
         }
 

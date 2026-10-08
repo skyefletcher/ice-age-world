@@ -39,7 +39,7 @@ godot --path .
 - `scripts/Water.cs` — lake water surfaces, and where the water is for drinking and swimming
 - `scripts/Animal.cs` — base class for playable animals: their stats (speed, size, diet, camera) and shared mesh-building helpers
 - `scripts/Mammoth.cs` — builds the woolly mammoth in code (body, trunk, tusks, tail, hair) and animates it
-- `scripts/SnowLeopard.cs` — builds the snow leopard in code (spotted coat, two-jointed legs, long tail) and animates its walk, gallop and drinking crouch
+- `scripts/SnowLeopard.cs` — builds the snow leopard in code to real proportions (fur patterned with rosettes and spots, ringed tail, cat face) and animates its walk, gallop and drinking crouch
 - `scripts/ProceduralTextures.cs` — generates the fur, rosette-spotted coat and ivory textures with normal maps at startup
 - `scripts/MeshBuilder.cs` — small helper for building meshes in code
 - `shaders/fur.gdshader` — sways the hair strands
