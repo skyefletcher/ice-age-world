@@ -40,6 +40,7 @@ godot --path .
 - `scripts/ProceduralTextures.cs` — generates the fur and ivory textures with normal maps at startup
 - `scripts/MeshBuilder.cs` — small helper for building meshes in code
 - `shaders/fur.gdshader` — sways the hair strands
+- `icons/` — HUD icons (leaf for hunger, water drop for thirst)
 - `scripts/Grassland.cs` — the edible meadow covering the green steppe; eaten grass flattens and regrows
 - `scripts/Player.cs` — movement, swimming, eating, drinking, hunger and thirst, and the camera
 - `scripts/Hud.cs` — hunger and thirst bars and the on-screen action prompt

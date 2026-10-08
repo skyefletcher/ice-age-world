@@ -15,7 +15,8 @@ public partial class Mammoth : Node3D
     private const int Seed = 7;
     private const int TrunkSegments = 4;
     private const float TrunkSegmentLength = 0.6f;
-    private const float HeadDownAngle = -0.6f;
+    // The neck bends from deep in the shoulders, so a smaller angle than at the jaw brings the head just as low.
+    private const float HeadDownAngle = -0.45f;
 
     private static readonly Color HairRoot = new(0.2f, 0.11f, 0.05f);
     private static readonly Color HairTip = new(0.52f, 0.33f, 0.17f);
@@ -93,10 +94,14 @@ public partial class Mammoth : Node3D
         Attach(body, "Skirt", Strands(rng, OnShape(rng, BodyShape, 2200, u => u.Y < 0.45f), new Vector3(0, -1f, 0), 0.5f, 0.9f));
         Attach(body, "Coat", Strands(rng, OnShape(rng, BodyShape, 1000, u => u.Y >= 0.45f), new Vector3(0, -0.7f, 0.7f), 0.35f, 0.55f));
 
-        // Head on a neck pivot that dips to graze.
-        _neck = Pivot(this, "Neck", new Vector3(0, 2.9f, -1.75f));
-        Attach(_neck, "Throat", Tube([new Vector3(0, -0.2f, 0.7f), new Vector3(0, 0.15f, -0.5f)], [0.75f, 0.6f], 14, hide, capEnd: false));
-        var head = Pivot(_neck, "Head", new Vector3(0, 0.25f, -0.6f));
+        // Head on a neck that bends at the shoulders to graze. The pivot sits inside the body, so the base of
+        // the neck stays buried in the shoulders however far the head dips, and only the head end swings down.
+        _neck = Pivot(this, "Neck", new Vector3(0, 2.7f, -1f));
+        var throatEnd = new Vector3(0, 0.35f, -1.25f);
+        Attach(_neck, "Throat", Tube([throatEnd, Vector3.Zero], [0.6f, 0.8f], 14, hide, capEnd: true));
+        Attach(_neck, "ThroatHair", Strands(rng, OnSegment(rng, 500, Vector3.Zero, throatEnd, 0.8f, 0.6f),
+            new Vector3(0, -0.8f, 0.4f), 0.3f, 0.5f));
+        var head = Pivot(_neck, "Head", new Vector3(0, 0.45f, -1.35f));
         Attach(head, "Skull", Ellipsoid(HeadShape, 32, 20, hide));
         Attach(head, "Mane", Strands(rng, OnShape(rng, HeadShape, 700, u => u.Y > -0.2f && u.Z > -0.55f), new Vector3(0, -0.9f, 0.5f), 0.25f, 0.45f));
 
@@ -309,6 +314,21 @@ public partial class Mammoth : Node3D
             float a = rng.Randf() * Mathf.Tau;
             var outward = new Vector3(Mathf.Cos(a), 0, Mathf.Sin(a));
             roots.Add((outward * radius + new Vector3(0, rng.RandfRange(bottomY, topY), zOffset), outward));
+        }
+        return roots;
+    }
+
+    /// <summary>Random points around a straight tube from <paramref name="from"/> to <paramref name="to"/>, whose radius tapers between the ends.</summary>
+    private static List<(Vector3 Root, Vector3 Normal)> OnSegment(RandomNumberGenerator rng, int count, Vector3 from, Vector3 to, float fromRadius, float toRadius)
+    {
+        var axis = (to - from).Normalized();
+        var across = axis.Cross(Vector3.Right).Normalized();
+        var roots = new List<(Vector3, Vector3)>(count);
+        for (int i = 0; i < count; i++)
+        {
+            float t = rng.Randf();
+            var outward = across.Rotated(axis, rng.Randf() * Mathf.Tau);
+            roots.Add((from.Lerp(to, t) + outward * Mathf.Lerp(fromRadius, toRadius, t), outward));
         }
         return roots;
     }

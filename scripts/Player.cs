@@ -30,10 +30,10 @@ public partial class Player : CharacterBody3D
     [Export] public float FloatDepth { get; set; } = 2.2f;
 
     /// <summary>Seconds for a full hunger bar to empty while walking about.</summary>
-    [Export] public float HungerDrainSeconds { get; set; } = 480f;
+    [Export] public float HungerDrainSeconds { get; set; } = 960f;
 
     /// <summary>Seconds for a full thirst bar to empty while walking about.</summary>
-    [Export] public float ThirstDrainSeconds { get; set; } = 300f;
+    [Export] public float ThirstDrainSeconds { get; set; } = 600f;
 
     /// <summary>How much faster hunger and thirst drain while running or swimming.</summary>
     [Export] public float ExertionDrainMultiplier { get; set; } = 2f;

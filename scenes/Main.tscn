@@ -6,6 +6,8 @@
 [ext_resource type="Script" path="res://scripts/Grassland.cs" id="4_grassland"]
 [ext_resource type="Script" path="res://scripts/Water.cs" id="5_water"]
 [ext_resource type="Script" path="res://scripts/Hud.cs" id="6_hud"]
+[ext_resource type="Texture2D" path="res://icons/leaf.svg" id="7_leaf"]
+[ext_resource type="Texture2D" path="res://icons/drop.svg" id="8_drop"]
 
 [sub_resource type="ProceduralSkyMaterial" id="SkyMat"]
 sky_top_color = Color(0.42, 0.58, 0.78, 1)
@@ -110,6 +112,13 @@ theme_override_constants/separation = 10
 layout_mode = 2
 theme_override_constants/separation = 10
 
+[node name="Icon" type="TextureRect" parent="Hud/Needs/Hunger"]
+custom_minimum_size = Vector2(32, 32)
+layout_mode = 2
+texture = ExtResource("7_leaf")
+expand_mode = 1
+stretch_mode = 5
+
 [node name="Label" type="Label" parent="Hud/Needs/Hunger"]
 custom_minimum_size = Vector2(70, 0)
 layout_mode = 2
@@ -131,6 +140,13 @@ show_percentage = false
 [node name="Thirst" type="HBoxContainer" parent="Hud/Needs"]
 layout_mode = 2
 theme_override_constants/separation = 10
+
+[node name="Icon" type="TextureRect" parent="Hud/Needs/Thirst"]
+custom_minimum_size = Vector2(32, 32)
+layout_mode = 2
+texture = ExtResource("8_drop")
+expand_mode = 1
+stretch_mode = 5
 
 [node name="Label" type="Label" parent="Hud/Needs/Thirst"]
 custom_minimum_size = Vector2(70, 0)
