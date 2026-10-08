@@ -4,7 +4,8 @@ namespace IceAgeWorld;
 
 /// <summary>
 /// The player's animal: camera-relative movement, sprinting, jumping, swimming, eating and drinking,
-/// hunger and thirst, a third-person orbit camera and simple procedural animations for the placeholder model.
+/// hunger and thirst, and a third-person orbit camera. The <see cref="Mammoth"/> model animates itself
+/// from the speed, stride and head-dip it is given each frame.
 /// </summary>
 public partial class Player : CharacterBody3D
 {
@@ -64,38 +65,29 @@ public partial class Player : CharacterBody3D
 
     private enum Feeding { None, Eating, Drinking }
 
-    private const float MouthDistance = 2.6f;
-    private const float HeadDownAngle = -0.6f;
+    private const float MouthDistance = 3f;
 
     /// <summary>Water deeper than this (measured at the feet) slows walking down to a wade.</summary>
     private const float WadeDepth = 0.6f;
 
     private readonly float _gravity = ProjectSettings.GetSetting("physics/3d/default_gravity").AsSingle();
 
-    private Node3D _model = null!;
-    private Node3D _neck = null!;
+    private Mammoth _model = null!;
     private Node3D _cameraPivot = null!;
     private SpringArm3D _springArm = null!;
-    private Node3D[] _legs = [];
-    private float _walkCycle;
     private Feeding _feeding;
     private float _feedTimer;
     private float _feedDuration;
     private int _grassTarget = -1;
 
+    /// <summary>0..1 how far the head is dipped to eat or drink, passed to the model each frame.</summary>
+    private float _headDip;
+
     public override void _Ready()
     {
-        _model = GetNode<Node3D>("Model");
-        _neck = GetNode<Node3D>("Model/Neck");
+        _model = GetNode<Mammoth>("Model");
         _cameraPivot = GetNode<Node3D>("CameraPivot");
         _springArm = GetNode<SpringArm3D>("CameraPivot/SpringArm3D");
-        _legs =
-        [
-            GetNode<Node3D>("Model/LegFrontLeft"),
-            GetNode<Node3D>("Model/LegFrontRight"),
-            GetNode<Node3D>("Model/LegBackLeft"),
-            GetNode<Node3D>("Model/LegBackRight"),
-        ];
 
         // Stop the camera arm colliding with our own body.
         _springArm.AddExcludedObject(GetRid());
@@ -197,15 +189,28 @@ public partial class Player : CharacterBody3D
         Velocity = velocity;
         MoveAndSlide();
 
-        AnimateLegs(horizontal.Length(), dt);
+        float groundSpeed = horizontal.Length();
+        float stride;
+        if (IsSwimming)
+        {
+            // Keep paddling even when not moving, to tread water.
+            groundSpeed += 2f;
+            stride = 1f;
+        }
+        else
+        {
+            stride = IsOnFloor() ? Mathf.Clamp(groundSpeed / WalkSpeed, 0f, 1f) : 0f;
+        }
+        _model.Animate(groundSpeed, stride, _headDip, dt);
 
         if (GlobalPosition.Y < -50f)
             Respawn();
     }
 
     /// <summary>
-    /// Works out whether the animal can drink or eat, starts doing so when E is pressed, and dips the head
-    /// while it happens. Water takes priority over grass, since grass doesn't grow at the water's edge.
+    /// Works out whether the animal can drink or eat, starts doing so when E is pressed, and tracks how far
+    /// the head is dipped while it happens. Grass is flattened halfway through a mouthful, when the head is
+    /// lowest. Water takes priority over grass, since grass doesn't grow at the water's edge.
     /// </summary>
     private void UpdateFeeding(float dt)
     {
@@ -234,14 +239,16 @@ public partial class Player : CharacterBody3D
         }
 
         if (!IsFeeding)
+        {
+            _headDip = 0f;
             return;
+        }
 
         _feedTimer = Mathf.Max(0f, _feedTimer - dt);
         float progress = 1f - _feedTimer / _feedDuration;
 
         // Lower the head, hold it down, then raise it again.
-        float dip = Mathf.Min(1f, Mathf.Sin(progress * Mathf.Pi) * 1.6f);
-        _neck.Rotation = new Vector3(dip * HeadDownAngle, 0, 0);
+        _headDip = Mathf.Min(1f, Mathf.Sin(progress * Mathf.Pi) * 1.6f);
 
         // Grass is flattened halfway through the mouthful, when the head is lowest.
         if (_feeding == Feeding.Eating && progress >= 0.5f && _grassTarget >= 0)
@@ -272,28 +279,5 @@ public partial class Player : CharacterBody3D
         _feeding = feeding;
         _feedDuration = duration;
         _feedTimer = duration;
-    }
-
-    /// <summary>Swings diagonal pairs of legs together, like a real quadruped's walk, and paddles while swimming.</summary>
-    private void AnimateLegs(float speed, float dt)
-    {
-        float amount;
-        if (IsSwimming)
-        {
-            // Keep paddling slowly even when not moving, to tread water.
-            _walkCycle += (2f + speed) * dt;
-            amount = 0.6f;
-        }
-        else
-        {
-            _walkCycle += speed * dt * 0.9f;
-            amount = IsOnFloor() ? Mathf.Clamp(speed / WalkSpeed, 0f, 1f) * 0.5f : 0f;
-        }
-
-        float swing = Mathf.Sin(_walkCycle) * amount;
-        _legs[0].Rotation = new Vector3(swing, 0, 0);
-        _legs[3].Rotation = new Vector3(swing, 0, 0);
-        _legs[1].Rotation = new Vector3(-swing, 0, 0);
-        _legs[2].Rotation = new Vector3(-swing, 0, 0);
     }
 }

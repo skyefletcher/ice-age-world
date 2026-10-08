@@ -32,11 +32,16 @@ godot --path .
 ## Layout
 
 - `scenes/Main.tscn` — the world: sky, sun, terrain, player and HUD
-- `scenes/Player.tscn` — the player animal (a placeholder mammoth built from primitive shapes) and its camera
-- `scripts/Terrain.cs` — generates the landscape, lake basins, collision and trees from noise
+- `scenes/Player.tscn` — the player animal and its camera
+- `scripts/Terrain.cs` — generates the landscape, lake basins, collision and forest patches from noise
+- `scripts/PineTree.cs` — builds randomised conifer meshes, so no two trees look alike
 - `scripts/Water.cs` — lake water surfaces, and where the water is for drinking and swimming
+- `scripts/Mammoth.cs` — builds the woolly mammoth in code (body, trunk, tusks, tail, hair) and animates it
+- `scripts/ProceduralTextures.cs` — generates the fur and ivory textures with normal maps at startup
+- `scripts/MeshBuilder.cs` — small helper for building meshes in code
+- `shaders/fur.gdshader` — sways the hair strands
 - `scripts/Grassland.cs` — the edible meadow covering the green steppe; eaten grass flattens and regrows
-- `scripts/Player.cs` — movement, swimming, eating, drinking, hunger and thirst, camera and animations
+- `scripts/Player.cs` — movement, swimming, eating, drinking, hunger and thirst, and the camera
 - `scripts/Hud.cs` — hunger and thirst bars and the on-screen action prompt
 - `scripts/InputSetup.cs` — key bindings
 - `scripts/Main.cs` — scene startup and mouse/window handling

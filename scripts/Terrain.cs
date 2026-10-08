@@ -8,7 +8,7 @@ public readonly record struct Lake(Vector2 Centre, float Radius, float Surface);
 
 /// <summary>
 /// Procedurally generates the ice-age landscape: a noise-based heightmap mesh, matching collision,
-/// a ring of mountains around the edge to keep players in, lake basins and scattered pine trees.
+/// a ring of mountains around the edge to keep players in, lake basins and patches of randomised pine forest.
 /// </summary>
 public partial class Terrain : Node3D
 {
@@ -28,6 +28,9 @@ public partial class Terrain : Node3D
 
     /// <summary>Width of the sloping bank between a lake's water line and the surrounding land.</summary>
     public const float ShoreWidth = 6f;
+
+    /// <summary>Number of distinct tree shapes generated; each placed tree is one of these, further varied.</summary>
+    [Export] public int TreeVariants { get; set; } = 8;
 
     private static readonly Color Steppe = new(0.58f, 0.6f, 0.42f);
     private static readonly Color Snow = new(0.93f, 0.95f, 1f);
@@ -268,10 +271,39 @@ public partial class Terrain : Node3D
     private void ScatterTrees()
     {
         var rng = new RandomNumberGenerator { Seed = (ulong)Seed };
-        var trees = new List<Transform3D>();
-        float range = HalfSize * 0.85f;
 
-        for (int attempt = 0; trees.Count < TreeCount && attempt < TreeCount * 20; attempt++)
+        // Forests grow in patches rather than as an even sprinkle across the whole map.
+        var forestNoise = new FastNoiseLite
+        {
+            Seed = Seed + 1,
+            NoiseType = FastNoiseLite.NoiseTypeEnum.SimplexSmooth,
+            Frequency = 0.012f,
+        };
+
+        var material = new StandardMaterial3D
+        {
+            VertexColorUseAsAlbedo = true,
+            VertexColorIsSrgb = true,
+            Roughness = 1f,
+            CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+        };
+
+        // A handful of base shapes, each one a different tree; every placed tree then varies further.
+        var variants = new ArrayMesh[TreeVariants];
+        var placements = new List<(Transform3D Transform, Color Tint)>[TreeVariants];
+        for (int v = 0; v < TreeVariants; v++)
+        {
+            variants[v] = PineTree.Build(rng, material);
+            placements[v] = [];
+        }
+
+        // Trunks are solid so animals can't walk through trees.
+        var trunkShape = new CylinderShape3D { Radius = 0.45f, Height = 4f };
+        var bodies = new StaticBody3D { Name = "TreeBodies" };
+        float range = HalfSize * 0.85f;
+        int placed = 0;
+
+        for (int attempt = 0; placed < TreeCount && attempt < TreeCount * 40; attempt++)
         {
             float x = rng.RandfRange(-range, range);
             float z = rng.RandfRange(-range, range);
@@ -282,42 +314,51 @@ public partial class Terrain : Node3D
             if (nearSpawn || tooHigh || IsSteep(x, z) || DistanceFromWater(x, z) < 3f)
                 continue;
 
-            var basis = Basis.Identity
-                .Rotated(Vector3.Up, rng.Randf() * Mathf.Tau)
-                .Scaled(Vector3.One * rng.RandfRange(0.7f, 1.4f));
-            trees.Add(new Transform3D(basis, new Vector3(x, h - 0.2f, z)));
+            float density = forestNoise.GetNoise2D(x, z) * 0.5f + 0.5f;
+            if (rng.Randf() > 0.05f + Mathf.SmoothStep(0.4f, 0.75f, density))
+                continue;
+
+            // Each tree gets its own height, girth, slight lean and brightness on top of its base shape.
+            float height = rng.RandfRange(0.75f, 1.3f);
+            float width = height * rng.RandfRange(0.85f, 1.15f);
+            float leanDirection = rng.Randf() * Mathf.Tau;
+            var leanAxis = new Vector3(Mathf.Cos(leanDirection), 0f, Mathf.Sin(leanDirection));
+            var basis = new Basis(leanAxis, rng.RandfRange(0f, 0.07f))
+                        * new Basis(Vector3.Up, rng.Randf() * Mathf.Tau)
+                        * Basis.FromScale(new Vector3(width, height, width));
+            float brightness = rng.RandfRange(0.8f, 1.1f);
+
+            placements[rng.RandiRange(0, TreeVariants - 1)].Add((
+                new Transform3D(basis, new Vector3(x, h - 0.2f, z)),
+                new Color(brightness, brightness, brightness)));
+            bodies.AddChild(new CollisionShape3D { Shape = trunkShape, Position = new Vector3(x, h + 2f, z) });
+            placed++;
         }
 
-        var bark = new StandardMaterial3D { AlbedoColor = new Color(0.33f, 0.24f, 0.17f) };
-        var needles = new StandardMaterial3D { AlbedoColor = new Color(0.16f, 0.3f, 0.22f) };
-        var snow = new StandardMaterial3D { AlbedoColor = Snow };
-
-        AddTreePart(trees, new CylinderMesh { TopRadius = 0.2f, BottomRadius = 0.3f, Height = 2f, Material = bark }, 1f);
-        AddTreePart(trees, new CylinderMesh { TopRadius = 0f, BottomRadius = 1.8f, Height = 3.5f, Material = needles }, 3.2f);
-        AddTreePart(trees, new CylinderMesh { TopRadius = 0f, BottomRadius = 1.3f, Height = 2.8f, Material = needles }, 5f);
-        AddTreePart(trees, new CylinderMesh { TopRadius = 0f, BottomRadius = 0.7f, Height = 1.4f, Material = snow }, 6.3f);
-
-        // Trunks are solid so animals can't walk through trees.
-        var trunkShape = new CylinderShape3D { Radius = 0.45f, Height = 4f };
-        var body = new StaticBody3D { Name = "TreeBodies" };
-        foreach (var tree in trees)
-            body.AddChild(new CollisionShape3D { Shape = trunkShape, Position = tree.Origin + Vector3.Up * 2f });
-        AddChild(body);
+        AddChild(bodies);
+        for (int v = 0; v < TreeVariants; v++)
+            AddTreeVariant(variants[v], placements[v]);
     }
 
-    /// <summary>Draws one piece of every tree in a single draw call using a MultiMesh.</summary>
-    private void AddTreePart(List<Transform3D> trees, Mesh mesh, float heightOffset)
+    /// <summary>Draws every tree that shares one base shape in a single draw call using a MultiMesh.</summary>
+    private void AddTreeVariant(Mesh mesh, List<(Transform3D Transform, Color Tint)> instances)
     {
+        if (instances.Count == 0)
+            return;
+
         var multiMesh = new MultiMesh
         {
             TransformFormat = MultiMesh.TransformFormatEnum.Transform3D,
+            UseColors = true,
             Mesh = mesh,
-            InstanceCount = trees.Count,
+            InstanceCount = instances.Count,
         };
 
-        var offset = new Transform3D(Basis.Identity, Vector3.Up * heightOffset);
-        for (int i = 0; i < trees.Count; i++)
-            multiMesh.SetInstanceTransform(i, trees[i] * offset);
+        for (int i = 0; i < instances.Count; i++)
+        {
+            multiMesh.SetInstanceTransform(i, instances[i].Transform);
+            multiMesh.SetInstanceColor(i, instances[i].Tint);
+        }
 
         AddChild(new MultiMeshInstance3D { Multimesh = multiMesh });
     }
