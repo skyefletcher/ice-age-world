@@ -9,6 +9,7 @@
 [ext_resource type="Texture2D" path="res://icons/leaf.svg" id="7_leaf"]
 [ext_resource type="Texture2D" path="res://icons/drop.svg" id="8_drop"]
 [ext_resource type="Texture2D" path="res://icons/bolt.svg" id="9_bolt"]
+[ext_resource type="Script" path="res://scripts/Wildlife.cs" id="10_wildlife"]
 
 [sub_resource type="ProceduralSkyMaterial" id="SkyMat"]
 sky_top_color = Color(0.42, 0.58, 0.78, 1)
@@ -76,6 +77,9 @@ script = ExtResource("4_grassland")
 [node name="Water" type="Node3D" parent="."]
 script = ExtResource("5_water")
 
+[node name="Wildlife" type="Node3D" parent="."]
+script = ExtResource("10_wildlife")
+
 [node name="Player" parent="." instance=ExtResource("3_player")]
 
 [node name="Hud" type="CanvasLayer" parent="."]
@@ -84,7 +88,7 @@ script = ExtResource("6_hud")
 [node name="Controls" type="Label" parent="Hud"]
 offset_left = 16.0
 offset_top = 12.0
-text = "WASD: move   Shift: run / dive   Space: jump / fly / leap   E: eat / drink   Tab: switch animal   Mouse: look   Wheel: zoom   Esc: free mouse   F11: fullscreen"
+text = "WASD: move   Shift: run / dive   Space: jump / fly / leap   E: eat / drink   F / click: attack   Tab: switch animal   Mouse: look   Wheel: zoom   Esc: free mouse   F11: fullscreen"
 
 [node name="ActionPrompt" type="Label" parent="Hud"]
 visible = false

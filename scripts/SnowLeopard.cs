@@ -22,7 +22,7 @@ public partial class SnowLeopard : Animal
     /// How much bigger the whole cat is drawn than it is modelled, so it stands taller among the other animals. Its
     /// collision body, camera and reach grow with it; everything below is in modelled (unscaled) units.
     /// </summary>
-    private const float BodyScale = 1.3f;
+    private const float BodyScale = 2.6f;
 
     /// <summary>How much bigger the whole head (skull, face, ears and fur) is drawn than it is modelled.</summary>
     private const float HeadScale = 1.6f;
@@ -100,7 +100,7 @@ public partial class SnowLeopard : Animal
     public override AnimalStats Stats { get; } = new()
     {
         Scores = new() { JumpHeight = 10, JumpLength = 10, LandSpeed = 9, WaterSpeed = 3, Agility = 10, Stamina = 7 },
-        Abilities = Ability.ClimbTrees,
+        Abilities = Ability.ClimbTrees | Ability.Hunt,
         FloatDepth = 0.4f * BodyScale,
         WadeDepth = 0.25f * BodyScale,
         MouthDistance = 0.7f * BodyScale,

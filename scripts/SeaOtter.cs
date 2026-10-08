@@ -83,7 +83,28 @@ public partial class SeaOtter : Animal
         else
             Bound(speed, stride, eat, dt);
 
-        _hair.SetShaderParameter("sway_amount", 0.004f + 0.008f * stride);
+        GoLimp();
+        _hair.SetShaderParameter("sway_amount", (0.004f + 0.008f * stride) * Alive);
+    }
+
+    /// <summary>
+    /// Dead, the otter lies (or floats) on its back as it rests, but no longer holds its paws up to its chest: they fall
+    /// slack to its sides, its hind flippers splay, and its head lolls back instead of being held up.
+    /// </summary>
+    private void GoLimp()
+    {
+        if (Dead <= 0f)
+            return;
+
+        for (int i = 0; i < 4; i++)
+        {
+            bool front = i < 2;
+            _legs[i].Rotation = Limp(_legs[i].Rotation, new Vector3(front ? 0.3f : -0.15f, 0f, (i % 2 == 0 ? -1f : 1f) * 0.5f));
+            _feet[i].Rotation = Limp(_feet[i].Rotation, new Vector3(front ? 0f : 0.15f, 0f, 0f));
+        }
+        _neck.Rotation = Limp(_neck.Rotation, new Vector3(0.35f, 0f, 0.3f));
+        foreach (var segment in _tail)
+            segment.Rotation = Limp(segment.Rotation, new Vector3(0.05f, 0f, 0f));
     }
 
     /// <summary>On land: a humping bound, the back arching as the hind feet come up behind the front.</summary>

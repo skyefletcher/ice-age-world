@@ -59,6 +59,7 @@ public partial class Player : CharacterBody3D
     public Terrain? Terrain { get; set; }
     public Grassland? Grassland { get; set; }
     public Water? Water { get; set; }
+    public Wildlife? Wildlife { get; set; }
 
     /// <summary>What the player can do right now (e.g. "Press E to drink"), or null if nothing.</summary>
     public string? ActionPrompt { get; private set; }
@@ -167,6 +168,7 @@ public partial class Player : CharacterBody3D
         _feeding = Feeding.None;
         _grassTarget = -1;
         _headDip = 0f;
+        StopHunting();
 
         _collision.Shape = new CapsuleShape3D { Radius = Stats.BodyRadius, Height = Stats.BodyHeight };
         _collision.Position = new Vector3(0, Stats.BodyHeight / 2f, 0);
@@ -190,6 +192,7 @@ public partial class Player : CharacterBody3D
         Posture = Posture.Standing;
         Animal.Sitting = Animal.Lying = 0f;
         Animal.Rotation = new Vector3(0, Animal.Rotation.Y, 0);
+        StopHunting();
         float ground = Terrain?.GetHeight(0, 0) ?? 0f;
         GlobalPosition = new Vector3(0, ground + 2f, 0);
         Velocity = Vector3.Zero;
@@ -254,6 +257,7 @@ public partial class Player : CharacterBody3D
 
         if (GlobalPosition.Y < -50f)
             Respawn();
+        HoldKill();
     }
 
     /// <summary>Moving on foot or swimming: everything every animal can do.</summary>
@@ -271,8 +275,10 @@ public partial class Player : CharacterBody3D
 
         // Sit or lie down, or get up again. Moving or jumping gets the animal up, but it can't go anywhere until it's
         // back on its feet.
-        bool resting = UpdatePosture(dt, direction);
-        UpdateFeeding(dt);
+        bool resting = UpdatePosture(dt, IsOnFloor() && !IsSwimming && !IsFeeding, direction != Vector3.Zero);
+        UpdateFeeding(dt, lookForFood: IsOnFloor() && !IsSwimming);
+        if (Stats.Can(Ability.Hunt))
+            UpdateHunting(dt, resting, upTree: false);
 
         // The animal stands still while it eats or drinks.
         if (IsFeeding || resting)
@@ -314,7 +320,7 @@ public partial class Player : CharacterBody3D
         UpdateNeeds(dt, exerting: sprinting || IsSwimming);
         UpdateStamina(dt, effort: sprinting ? 1f : IsSwimming ? Stats.SwimEffort : 0f);
 
-        float speed = sprinting ? Stats.SprintSpeed : Stats.WalkSpeed;
+        float speed = (sprinting ? Stats.SprintSpeed : Stats.WalkSpeed) * (IsCarrying ? CarrySpeed : 1f);
         if (IsSwimming)
             speed = Stats.SwimSpeed * (IsExhausted ? 0.6f : 1f);
         else if (waterDepth > Stats.WadeDepth)
@@ -335,6 +341,10 @@ public partial class Player : CharacterBody3D
         {
             horizontal = horizontal.Lerp(target, Mathf.Min(1f, Stats.Acceleration * dt));
         }
+
+        // A pounce springs the hunter forward on top of whatever it was doing, dying away as it lands.
+        horizontal += _lunge;
+        _lunge = _lunge.MoveToward(Vector3.Zero, _lunge.Length() * 6f * dt + 0.5f * dt);
         velocity.X = horizontal.X;
         velocity.Z = horizontal.Z;
 
@@ -368,16 +378,17 @@ public partial class Player : CharacterBody3D
     /// <summary>
     /// Works out whether the animal can drink or eat, starts doing so when E is pressed, and tracks how far
     /// the head is dipped while it happens. Grass is flattened halfway through a mouthful, when the head is
-    /// lowest. Water takes priority over grass, since grass doesn't grow at the water's edge.
+    /// lowest. Water takes priority over grass, since grass doesn't grow at the water's edge. Only looks for food
+    /// when it can reach the ground (<paramref name="lookForFood"/>), but finishes a mouthful anywhere, e.g. of a kill
+    /// up a tree (see <see cref="UpdateHunting"/>).
     /// </summary>
-    private void UpdateFeeding(float dt)
+    private void UpdateFeeding(float dt, bool lookForFood)
     {
-        if (!IsFeeding && IsOnFloor() && !IsSwimming && !Animal.IsResting)
+        if (!IsFeeding && lookForFood && !Animal.IsResting)
         {
-            var mouth = GlobalPosition - Animal.GlobalBasis.Z * Stats.MouthDistance;
-            int grass = Stats.CanGraze ? Grassland?.FindEdible(mouth, Stats.EatReach) ?? -1 : -1;
+            int grass = Stats.CanGraze ? Grassland?.FindEdible(Mouth, Stats.EatReach) ?? -1 : -1;
 
-            if (Water?.SurfaceAt(mouth) is not null)
+            if (Water?.SurfaceAt(Mouth) is not null)
             {
                 ActionPrompt = "Press E to drink";
                 if (Input.IsActionJustPressed(InputSetup.Eat))
@@ -414,6 +425,14 @@ public partial class Player : CharacterBody3D
             Hunger = Mathf.Min(100f, Hunger + FoodPerMouthful);
         }
 
+        // Meat is torn off at the same point in the mouthful.
+        if (_feeding == Feeding.Eating && progress >= 0.5f && _carcass is not null)
+        {
+            if (Wildlife!.EatFrom(_carcass, MeatShare))
+                Hunger = Mathf.Min(100f, Hunger + MeatPerMouthful);
+            _carcass = null;
+        }
+
         // Thirst fills steadily for as long as the animal drinks.
         if (_feeding == Feeding.Drinking)
             Thirst = Mathf.Min(100f, Thirst + WaterPerDrink * dt / _feedDuration);
@@ -423,17 +442,17 @@ public partial class Player : CharacterBody3D
     }
 
     /// <summary>
-    /// Sits or lies down when its key is pressed on dry ground; pressing it again, moving or jumping gets the animal
-    /// up. Eases the model into and out of the pose, and returns true while the animal is down or still getting up.
+    /// Sits or lies down when its key is pressed somewhere it <paramref name="canRest"/>: dry ground, or up a tree on a
+    /// branch or the treetop. Pressing it again, moving or jumping gets the animal up. Eases the model into and out of
+    /// the pose, and returns true while the animal is down or still getting up.
     /// </summary>
-    private bool UpdatePosture(float dt, Vector3 direction)
+    private bool UpdatePosture(float dt, bool canRest, bool moving)
     {
-        bool canRest = IsOnFloor() && !IsSwimming && !IsFeeding;
         if (canRest && Input.IsActionJustPressed(InputSetup.Sit))
             Posture = Posture == Posture.Sitting ? Posture.Standing : Posture.Sitting;
         else if (canRest && Input.IsActionJustPressed(InputSetup.LieDown))
             Posture = Posture == Posture.Lying ? Posture.Standing : Posture.Lying;
-        else if (!canRest || direction != Vector3.Zero || Input.IsActionJustPressed(InputSetup.Jump))
+        else if (!canRest || moving || Input.IsActionJustPressed(InputSetup.Jump))
             Posture = Posture.Standing;
 
         Animal.Settle(Posture, PostureChangeSeconds, dt);

@@ -55,6 +55,12 @@ public partial class ArcticWolf : Animal
     private static readonly float[] SitTail = [-0.6f, -1.3f, -1.57f, -1.57f];
     private static readonly float[] LieTail = [-0.15f, -0.7f, -1.4f, -1.57f];
 
+    // Dead, it lies on its side: how far the body's centre sits off the ground, and the neck stretched out and head
+    // laid flat along the ground.
+    private const float DeadFlank = 0.19f;
+    private const float DeadNeck = -1f;
+    private const float DeadHead = 0.45f;
+
     // A white coat with a faint cream cast along the back, shading a little greyer at the hair roots.
     private static readonly Color FurRoot = new(0.84f, 0.84f, 0.82f);
     private static readonly Color FurTip = Colors.White;
@@ -174,11 +180,39 @@ public partial class ArcticWolf : Animal
                 0, Pose(sway, curl, curl));
         }
 
-        float twitch = Mathf.Pow(Mathf.Max(0f, Mathf.Sin(_time * 0.7f)), 12f) * 0.35f;
+        float twitch = Mathf.Pow(Mathf.Max(0f, Mathf.Sin(_time * 0.7f)), 12f) * 0.35f * Alive;
         _ears[0].Rotation = new Vector3(0, 0, twitch);
-        _ears[1].Rotation = new Vector3(0, 0, -Mathf.Pow(Mathf.Max(0f, Mathf.Sin(_time * 0.7f + 2.5f)), 12f) * 0.35f);
+        _ears[1].Rotation = new Vector3(0, 0, -Mathf.Pow(Mathf.Max(0f, Mathf.Sin(_time * 0.7f + 2.5f)), 12f) * 0.35f * Alive);
 
-        _hair.SetShaderParameter("sway_amount", 0.008f + 0.02f * stride);
+        GoLimp();
+        _hair.SetShaderParameter("sway_amount", (0.008f + 0.02f * stride) * Alive);
+    }
+
+    /// <summary>
+    /// Dead, the wolf flops over onto its left flank, legs stretched loosely out from the body, head laid flat on the
+    /// ground at the end of its outstretched neck and tail trailing straight behind.
+    /// </summary>
+    private void GoLimp()
+    {
+        if (Dead <= 0f)
+            return;
+
+        // Rolled onto its side, the body's centre comes down to its half-width in coat above the ground.
+        _frame.Position = Limp(_frame.Position, new Vector3(0.62f, DeadFlank, 0f));
+        _frame.Rotation = Limp(_frame.Rotation, new Vector3(0f, 0f, Mathf.Pi / 2f));
+
+        for (int i = 0; i < 4; i++)
+        {
+            bool front = i < 2;
+            _upperLegs[i].Rotation = Limp(_upperLegs[i].Rotation, new Vector3(front ? 0.5f : -0.45f, 0f, 0f));
+            _lowerLegs[i].Rotation = Limp(_lowerLegs[i].Rotation, new Vector3(front ? 0.25f : -0.25f, 0f, 0f));
+            _paws[i].Rotation = Limp(_paws[i].Rotation, new Vector3(front ? 0.3f : 0.2f, 0f, 0f));
+        }
+
+        _neck.Rotation = Limp(_neck.Rotation, new Vector3(DeadNeck, 0f, 0f));
+        _head.Rotation = Limp(_head.Rotation, new Vector3(DeadHead, 0f, 0f));
+        for (int i = 0; i < _tail.Length; i++)
+            _tail[i].Rotation = Limp(_tail[i].Rotation, new Vector3(i == 0 ? -1.4f : 0.05f, 0f, 0f));
     }
 
     private void Build()

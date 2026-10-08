@@ -18,11 +18,15 @@ public partial class Main : Node3D
         grassland.Populate(terrain);
         var water = GetNode<Water>("Water");
         water.Build(terrain);
+        var wildlife = GetNode<Wildlife>("Wildlife");
+        wildlife.Populate(terrain, water);
 
         var player = GetNode<Player>("Player");
         player.Terrain = terrain;
         player.Grassland = grassland;
         player.Water = water;
+        player.Wildlife = wildlife;
+        wildlife.Player = player;
         player.Respawn();
 
         GetNode<Hud>("Hud").Player = player;

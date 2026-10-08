@@ -7,7 +7,8 @@ namespace IceAgeWorld;
 /// clings on facing the bark, W climbs (which costs stamina), S climbs back down and A / D work round the trunk.
 /// Beside any sturdy branch, E steps out onto it, and W / S walk out along it and back, the way snow leopards lie up
 /// on limbs. Near the top of the trunk it scrambles up through the crown and stands on the very top of the tree, a
-/// high lookout over its range, where A / D turn it round. Space leaps off from anywhere.
+/// high lookout over its range, where A / D turn it round. On a branch or the treetop C sits and X lies down, as on the
+/// ground. Space leaps off from anywhere.
 /// </summary>
 public partial class Player
 {
@@ -47,8 +48,8 @@ public partial class Player
     /// <summary>Seconds after touching down, forepaws first, for the hind legs to come down too.</summary>
     private const float SettleDuration = 0.35f;
 
-    /// <summary>Climbing speed up the trunk: agile animals scramble up fast.</summary>
-    private float ClimbSpeed => 1f + Stats.Scores.Agility * 0.25f;
+    /// <summary>Climbing speed up the trunk: agile animals scramble up fast, but slower hauling a kill.</summary>
+    private float ClimbSpeed => (1f + Stats.Scores.Agility * 0.25f) * (IsCarrying ? CarrySpeed : 1f);
 
     /// <summary>Starts climbing if the animal is walking straight into a tree trunk.</summary>
     private bool TryStartClimb(Vector3 direction)
@@ -191,17 +192,28 @@ public partial class Player
         float reach = _tree.Branches[_branch].Reach;
         _climbHeight = _tree.BranchHeight(_branch);
 
-        ActionPrompt = "W / S to walk out or back along the branch, Space to leap off";
+        ActionPrompt = "W / S to walk out or back along the branch, C to sit, X to lie down, Space to leap off";
+
+        // Sit or stretch out along the limb, as snow leopards do to watch over a valley. Moving or Space gets the cat
+        // up, but it stays put until it is back on its feet.
+        float wanted = -input.Y;
+        bool resting = UpdatePosture(dt, canRest: true, moving: Mathf.Abs(wanted) > 0.1f);
+
+        // A hunter can feed up here on a kill it has hauled up, standing still to eat.
+        UpdateFeeding(dt, lookForFood: false);
+        if (Stats.Can(Ability.Hunt))
+            UpdateHunting(dt, resting, upTree: true);
+        if (resting || IsFeeding)
+            wanted = 0f;
 
         // Slow and careful: a narrow branch high up is no place to hurry.
-        float wanted = -input.Y;
         float pace = Stats.WalkSpeed * 0.5f;
         _along = Mathf.Min(reach, _along + wanted * pace / length * dt);
         if (Mathf.Abs(wanted) > 0.1f)
             _facingOut = wanted > 0f;
 
         var direction = _tree.BranchDirection(_branch);
-        if (Input.IsActionJustPressed(InputSetup.Jump))
+        if (!resting && !IsFeeding && Input.IsActionJustPressed(InputSetup.Jump))
         {
             LeapOff(_facingOut ? direction : -direction, Stats.JumpBoost);
             return;
@@ -233,7 +245,7 @@ public partial class Player
             Mathf.LerpAngle(Animal.Rotation.Y, yaw, Mathf.Min(1f, Stats.TurnSpeed * dt)),
             0);
         bool moving = Mathf.Abs(wanted) > 0.1f && _along < reach;
-        Animal.Animate(moving ? pace : 0f, moving ? 1f : 0f, 0f, dt);
+        Animal.Animate(moving ? pace : 0f, moving ? 1f : 0f, _headDip, dt);
     }
 
     /// <summary>Scrambles from the top of the trunk onto the very top of the tree and stands there until told to leave.</summary>
@@ -249,18 +261,30 @@ public partial class Player
         if (arriving && _hop >= 1f)
             _springArm.Rotation = new Vector3(-0.35f, 0, 0);
 
-        float turn = _hop < 1f ? 0f : -input.X;
+        // Once up, the cat can sit or lie on the top as on the ground. Turning or moving gets it up again first.
+        bool resting = UpdatePosture(dt, canRest: _hop >= 1f, moving: input.Length() > 0.5f);
+
+        // Up top, out of reach of anything on the ground, is the safest place to eat a kill.
+        if (_hop >= 1f)
+            UpdateFeeding(dt, lookForFood: false);
+        resting |= IsFeeding;
+
+        float turn = _hop < 1f || resting ? 0f : -input.X;
         _treetopYaw += turn * TreetopTurnSpeed * dt;
         Animal.Rotation = new Vector3(Mathf.Pi / 2f * (1f - t), _treetopYaw, 0);
 
         UpdateNeeds(dt, exerting: false);
         UpdateStamina(dt, effort: 0f);
         bool moving = _hop < 1f || turn != 0f;
-        Animal.Animate(moving ? ClimbSpeed * 0.5f : 0f, moving ? 1f : 0f, 0f, dt);
+        Animal.Animate(moving ? ClimbSpeed * 0.5f : 0f, moving ? 1f : 0f, _headDip, dt);
         if (_hop < 1f)
             return;
 
-        ActionPrompt = "A / D to turn, Space to leap down, S to climb down";
+        ActionPrompt = "A / D to turn, C to sit, X to lie down, Space to leap down, S to climb down";
+        if (Stats.Can(Ability.Hunt))
+            UpdateHunting(dt, resting, upTree: true);
+        if (resting)
+            return;
         if (Input.IsActionJustPressed(InputSetup.Jump))
         {
             LeapOff(new Vector3(-Mathf.Sin(_treetopYaw), 0f, -Mathf.Cos(_treetopYaw)), Stats.JumpBoost);

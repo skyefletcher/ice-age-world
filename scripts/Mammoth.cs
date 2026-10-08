@@ -95,31 +95,31 @@ public partial class Mammoth : Animal
         // The head dips to graze and nods gently in step. Sitting, it tips forward to look ahead; lying, it rests on
         // the ground.
         _neck.Rotation = new Vector3(eat * HeadDownAngle + Mathf.Sin(_walkCycle * 2f) * 0.03f * stride + Pose(0f, -SitPitch * 0.7f, 0f),
-            Pose(0f, 0f, 0.3f), 0);
+            Pose(0f, 0f, Limp(0.3f, 0.45f)), 0);
 
         // The trunk swings side to side, lazily when idle and harder in step, each segment lagging the one
         // above like a chain of pendulums. While grazing it curls back under the head towards the mouth.
-        // Lying, it flops down onto the ground, still stirring.
+        // Lying, it flops down onto the ground, still stirring until it dies.
         for (int i = 0; i < _trunk.Length; i++)
         {
             float lag = i * 0.6f;
-            float sway = Mathf.Sin(_time * 1.3f - lag) * 0.1f + Mathf.Sin(_walkCycle - 0.3f - lag) * 0.22f * stride;
+            float sway = (Mathf.Sin(_time * 1.3f - lag) * 0.1f + Mathf.Sin(_walkCycle - 0.3f - lag) * 0.22f * stride) * Alive;
             float hang = i == 0 ? 0.45f : -0.12f;
             float curl = eat * (i == 0 ? 0.3f : -0.5f);
             _trunk[i].Rotation = new Vector3(hang + curl, 0, sway + Pose(0f, 0f, i == 0 ? -1.1f : -0.15f));
         }
 
         // The tail hangs off the rump and swishes, more so when walking. At rest it lies out along the ground.
-        float swish = Mathf.Sin(_time * 2.1f) * 0.2f + Mathf.Sin(_walkCycle * 0.5f) * 0.25f * stride;
-        _tail.Rotation = new Vector3(Pose(-0.7f, -1.4f - SitPitch, -0.7f) + Mathf.Sin(_time * 0.9f) * 0.1f, 0, swish + Pose(0f, 0f, -1.1f));
+        float swish = (Mathf.Sin(_time * 2.1f) * 0.2f + Mathf.Sin(_walkCycle * 0.5f) * 0.25f * stride) * Alive;
+        _tail.Rotation = new Vector3(Pose(-0.7f, -1.4f - SitPitch, -0.7f) + Mathf.Sin(_time * 0.9f) * 0.1f * Alive, 0, swish + Pose(0f, 0f, -1.1f));
 
         // Ears lie back against the head and flap now and then.
-        float flap = Mathf.Sin(_time * 1.7f) * 0.1f + Mathf.Sin(_walkCycle * 2f) * 0.08f * stride;
+        float flap = (Mathf.Sin(_time * 1.7f) * 0.1f + Mathf.Sin(_walkCycle * 2f) * 0.08f * stride) * Alive;
         _ears[0].Rotation = new Vector3(0, 0.5f + flap, 0);
         _ears[1].Rotation = new Vector3(0, -(0.5f + flap), 0);
 
         // Loose hair bounces more the faster the animal moves.
-        _hair.SetShaderParameter("sway_amount", 0.025f + 0.06f * stride);
+        _hair.SetShaderParameter("sway_amount", (0.025f + 0.06f * stride) * Alive);
     }
 
     private void Build()
@@ -154,8 +154,8 @@ public partial class Mammoth : Animal
 
         foreach (float side in new[] { -1f, 1f })
         {
-            Attach(head, "Eye", new SphereMesh { Radius = 0.07f, Height = 0.14f, Material = dark },
-                new Vector3(side * 0.5f, 0.12f, -0.4f));
+            AsEye(Attach(head, "Eye", new SphereMesh { Radius = 0.07f, Height = 0.14f, Material = dark },
+                new Vector3(side * 0.5f, 0.12f, -0.4f)));
             Attach(head, "Tusk", Tusk(side, ivory));
         }
 

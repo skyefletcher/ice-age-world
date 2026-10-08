@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Godot;
 
 namespace IceAgeWorld;
@@ -39,6 +40,9 @@ public enum Ability
 
     /// <summary>Travels with a herd that ambles along in a loose crowd and grazes whenever it stops.</summary>
     Herd = 8,
+
+    /// <summary>Stalks, attacks and kills wild animals, and eats from their carcasses.</summary>
+    Hunt = 16,
 }
 
 /// <summary>How an animal is resting, if at all.</summary>
@@ -106,7 +110,7 @@ public sealed record AnimalStats
     /// <summary>How close grass must be to the mouth to be eaten.</summary>
     public required float EatReach { get; init; }
 
-    /// <summary>Whether the animal eats grass. Meat eaters can only drink for now.</summary>
+    /// <summary>Whether the animal eats grass. Meat eaters that can <see cref="Ability.Hunt"/> eat what they kill instead.</summary>
     public required bool CanGraze { get; init; }
 
     /// <summary>Radius and height of the upright capsule the animal collides with.</summary>
@@ -157,6 +161,45 @@ public abstract partial class Animal : Node3D
 
     /// <summary>True while the animal is sitting or lying, or still getting up.</summary>
     public bool IsResting => Sitting > 0f || Lying > 0f;
+
+    /// <summary>
+    /// 0..1 how far the animal has gone limp in death, eased in as it falls. Its eyes close, it stops stirring, and
+    /// <see cref="Animate"/> lets its joints flop into a dead weight, see <see cref="Limp(float, float)"/>.
+    /// </summary>
+    public float Dead
+    {
+        get => _dead;
+        set
+        {
+            if (value == _dead)
+                return;
+            _dead = value;
+            _eyes ??= FindChildren("*", "", true, false).OfType<Node3D>().Where(n => n.IsInGroup(EyeGroup)).ToList();
+            foreach (var eye in _eyes)
+                eye.Scale = new Vector3(1f, Mathf.Lerp(1f, 0.12f, value), 1f);
+        }
+    }
+
+    private float _dead;
+    private List<Node3D>? _eyes;
+
+    /// <summary>Group the eyes are in, so they can be closed when the animal dies.</summary>
+    private const string EyeGroup = "eyes";
+
+    /// <summary>1 while alive, easing to 0 in death: scales idle motion such as twitching ears and a swaying trunk.</summary>
+    protected float Alive => 1f - Dead;
+
+    /// <summary>Blends a joint angle from its living pose to its limp one as the animal dies, easing in like <see cref="Pose(float, float, float)"/>.</summary>
+    protected float Limp(float alive, float dead) => Mathf.Lerp(alive, dead, Mathf.SmoothStep(0f, 1f, Dead));
+
+    protected Vector3 Limp(Vector3 alive, Vector3 dead) => alive.Lerp(dead, Mathf.SmoothStep(0f, 1f, Dead));
+
+    /// <summary>Marks a node as an eye, which flattens shut when the animal dies.</summary>
+    protected static T AsEye<T>(T node) where T : Node3D
+    {
+        node.AddToGroup(EyeGroup);
+        return node;
+    }
 
     /// <summary>Eases the sitting and lying poses towards <paramref name="posture"/>, taking <paramref name="seconds"/> to settle or get up.</summary>
     public void Settle(Posture posture, float seconds, float dt)
@@ -214,8 +257,12 @@ public abstract partial class Animal : Node3D
         return pivot;
     }
 
-    protected static void Attach(Node3D parent, string name, Mesh mesh, Vector3 position = default) =>
-        parent.AddChild(new MeshInstance3D { Name = name, Mesh = mesh, Position = position });
+    protected static MeshInstance3D Attach(Node3D parent, string name, Mesh mesh, Vector3 position = default)
+    {
+        var instance = new MeshInstance3D { Name = name, Mesh = mesh, Position = position };
+        parent.AddChild(instance);
+        return instance;
+    }
 
     private static Vector3 Direction(float theta, float phi) =>
         new(Mathf.Cos(phi) * Mathf.Cos(theta), Mathf.Sin(phi), Mathf.Cos(phi) * Mathf.Sin(theta));
@@ -404,7 +451,7 @@ public abstract partial class Animal : Node3D
         };
         var catchlight = new StandardMaterial3D { AlbedoColor = Colors.White, ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded };
 
-        var socket = Pivot(parent, "Eye", position);
+        var socket = AsEye(Pivot(parent, "Eye", position));
         socket.Rotation = rotation;
         float depth = radius * 0.5f;
         Attach(socket, "Rim", Ellipsoid(new Vector3(radius * 1.15f, radius * 1.15f, depth), 16, 10, rim));
