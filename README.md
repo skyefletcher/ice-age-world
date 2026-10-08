@@ -23,7 +23,7 @@ godot --path .
 | WASD / arrows | Move |
 | Shift | Run |
 | Space | Jump |
-| E | Eat grass (when "Press E to eat grass" shows) |
+| E | Eat grass or drink water (when the prompt shows) |
 | Mouse | Look around |
 | Mouse wheel | Zoom camera |
 | Esc / left click | Release / recapture mouse |
@@ -33,8 +33,10 @@ godot --path .
 
 - `scenes/Main.tscn` — the world: sky, sun, terrain, player and HUD
 - `scenes/Player.tscn` — the player animal (a placeholder mammoth built from primitive shapes) and its camera
-- `scripts/Terrain.cs` — generates the landscape, its collision and trees from noise
-- `scripts/Grassland.cs` — edible grass clumps that flatten when eaten and regrow
-- `scripts/Player.cs` — movement, camera, walk and eating animations
+- `scripts/Terrain.cs` — generates the landscape, lake basins, collision and trees from noise
+- `scripts/Water.cs` — lake water surfaces, and where the water is for drinking and swimming
+- `scripts/Grassland.cs` — the edible meadow covering the green steppe; eaten grass flattens and regrows
+- `scripts/Player.cs` — movement, swimming, eating, drinking, hunger and thirst, camera and animations
+- `scripts/Hud.cs` — hunger and thirst bars and the on-screen action prompt
 - `scripts/InputSetup.cs` — key bindings
 - `scripts/Main.cs` — scene startup and mouse/window handling

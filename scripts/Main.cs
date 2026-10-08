@@ -5,9 +5,6 @@ namespace IceAgeWorld;
 /// <summary>Root of the game scene: wires up input, lighting and spawns the player on the terrain.</summary>
 public partial class Main : Node3D
 {
-    private Player _player = null!;
-    private Control _eatPrompt = null!;
-
     public override void _Ready()
     {
         InputSetup.Register();
@@ -19,20 +16,18 @@ public partial class Main : Node3D
         var terrain = GetNode<Terrain>("Terrain");
         var grassland = GetNode<Grassland>("Grassland");
         grassland.Populate(terrain);
+        var water = GetNode<Water>("Water");
+        water.Build(terrain);
 
-        _player = GetNode<Player>("Player");
-        _player.Terrain = terrain;
-        _player.Grassland = grassland;
-        _player.Respawn();
+        var player = GetNode<Player>("Player");
+        player.Terrain = terrain;
+        player.Grassland = grassland;
+        player.Water = water;
+        player.Respawn();
 
-        _eatPrompt = GetNode<Control>("Hud/EatPrompt");
+        GetNode<Hud>("Hud").Player = player;
 
         Input.MouseMode = Input.MouseModeEnum.Captured;
-    }
-
-    public override void _Process(double delta)
-    {
-        _eatPrompt.Visible = _player.CanEat;
     }
 
     public override void _UnhandledInput(InputEvent @event)

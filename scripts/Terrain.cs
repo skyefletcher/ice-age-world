@@ -3,9 +3,12 @@ using Godot;
 
 namespace IceAgeWorld;
 
+/// <summary>A round lake carved into the terrain. <see cref="Radius"/> is where the water meets the shore.</summary>
+public readonly record struct Lake(Vector2 Centre, float Radius, float Surface);
+
 /// <summary>
 /// Procedurally generates the ice-age landscape: a noise-based heightmap mesh, matching collision,
-/// a ring of mountains around the edge to keep players in, and scattered pine trees.
+/// a ring of mountains around the edge to keep players in, lake basins and scattered pine trees.
 /// </summary>
 public partial class Terrain : Node3D
 {
@@ -18,15 +21,26 @@ public partial class Terrain : Node3D
     [Export] public float HeightScale { get; set; } = 28f;
     [Export] public int Seed { get; set; } = 1234;
     [Export] public int TreeCount { get; set; } = 400;
+    [Export] public int LakeCount { get; set; } = 6;
+
+    /// <summary>Depth of water at the centre of each lake.</summary>
+    [Export] public float LakeDepth { get; set; } = 5f;
+
+    /// <summary>Width of the sloping bank between a lake's water line and the surrounding land.</summary>
+    public const float ShoreWidth = 6f;
 
     private static readonly Color Steppe = new(0.58f, 0.6f, 0.42f);
     private static readonly Color Snow = new(0.93f, 0.95f, 1f);
     private static readonly Color Rock = new(0.45f, 0.45f, 0.48f);
+    private static readonly Color Mud = new(0.42f, 0.37f, 0.28f);
 
     private float[] _heights = [];
+    private readonly List<Lake> _lakes = [];
 
     /// <summary>Distance from the centre of the map to its edge.</summary>
     public float HalfSize => (Resolution - 1) * CellSize / 2f;
+
+    public IReadOnlyList<Lake> Lakes => _lakes;
 
     public override void _Ready()
     {
@@ -54,9 +68,26 @@ public partial class Terrain : Node3D
         Mathf.Abs(GetHeight(x + 2, z) - GetHeight(x - 2, z)) > 2.5f
         || Mathf.Abs(GetHeight(x, z + 2) - GetHeight(x, z - 2)) > 2.5f;
 
-    /// <summary>True on the low, gentle steppe below the snow line, where grass grows.</summary>
-    public bool IsGrassy(float x, float z) =>
-        GetHeight(x, z) < HeightScale * 0.22f && !IsSteep(x, z);
+    /// <summary>
+    /// How much grass grows at a point: 1 on the green steppe, fading to 0 towards the snow line,
+    /// and 0 on steep rocky ground, in lakes and on their muddy shores.
+    /// </summary>
+    public float GrassAmount(float x, float z)
+    {
+        if (IsSteep(x, z) || DistanceFromWater(x, z) < 2.5f)
+            return 0f;
+
+        return 1f - Mathf.SmoothStep(HeightScale * 0.18f, HeightScale * 0.28f, GetHeight(x, z));
+    }
+
+    /// <summary>Distance to the nearest lake's water line; negative inside a lake.</summary>
+    public float DistanceFromWater(float x, float z)
+    {
+        float nearest = float.MaxValue;
+        foreach (var lake in _lakes)
+            nearest = Mathf.Min(nearest, new Vector2(x, z).DistanceTo(lake.Centre) - lake.Radius);
+        return nearest;
+    }
 
     private float HeightAt(int x, int z) =>
         _heights[Mathf.Clamp(z, 0, Resolution - 1) * Resolution + Mathf.Clamp(x, 0, Resolution - 1)];
@@ -94,6 +125,78 @@ public partial class Terrain : Node3D
 
             _heights[z * Resolution + x] = h;
         }
+
+        CarveLakes();
+    }
+
+    private void CarveLakes()
+    {
+        var rng = new RandomNumberGenerator { Seed = (ulong)Seed + 1 };
+        _lakes.Clear();
+
+        for (int attempt = 0; _lakes.Count < LakeCount && attempt < 500; attempt++)
+        {
+            float radius = rng.RandfRange(14f, 24f);
+            // The first lake goes near the spawn point so there's always water close by.
+            float distance = _lakes.Count == 0 ? radius + 30f : rng.RandfRange(60f, HalfSize * 0.7f);
+            float angle = rng.Randf() * Mathf.Tau;
+            var centre = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * distance;
+
+            if (GetHeight(centre.X, centre.Y) > HeightScale * 0.2f)
+                continue;
+
+            bool overlaps = false;
+            foreach (var other in _lakes)
+                overlaps |= centre.DistanceTo(other.Centre) < radius + other.Radius + ShoreWidth * 2f;
+            if (overlaps)
+                continue;
+
+            // Set the water just below the lowest point of the surrounding bank, so the lake never spills.
+            float surface = float.MaxValue;
+            foreach (float ring in new[] { radius, radius + ShoreWidth * 0.5f, radius + ShoreWidth })
+            for (int k = 0; k < 32; k++)
+            {
+                float a = k * Mathf.Tau / 32f;
+                surface = Mathf.Min(surface, GetHeight(centre.X + Mathf.Cos(a) * ring, centre.Y + Mathf.Sin(a) * ring));
+            }
+
+            var lake = new Lake(centre, radius, surface - 0.4f);
+            _lakes.Add(lake);
+            Carve(lake);
+        }
+    }
+
+    /// <summary>Digs a bowl below the water line and blends a sloping bank back up to the original ground.</summary>
+    private void Carve(Lake lake)
+    {
+        float reach = lake.Radius + ShoreWidth;
+        int minX = Mathf.Max(0, Mathf.FloorToInt((lake.Centre.X - reach + HalfSize) / CellSize));
+        int maxX = Mathf.Min(Resolution - 1, Mathf.CeilToInt((lake.Centre.X + reach + HalfSize) / CellSize));
+        int minZ = Mathf.Max(0, Mathf.FloorToInt((lake.Centre.Y - reach + HalfSize) / CellSize));
+        int maxZ = Mathf.Min(Resolution - 1, Mathf.CeilToInt((lake.Centre.Y + reach + HalfSize) / CellSize));
+
+        for (int z = minZ; z <= maxZ; z++)
+        for (int x = minX; x <= maxX; x++)
+        {
+            var point = new Vector2(x * CellSize - HalfSize, z * CellSize - HalfSize);
+            float d = point.DistanceTo(lake.Centre);
+            if (d > reach)
+                continue;
+
+            int i = z * Resolution + x;
+            float original = _heights[i];
+            float edge = lake.Surface - 0.3f;
+
+            if (d < lake.Radius)
+            {
+                float bowl = edge - (LakeDepth - 0.3f) * (1f - Mathf.SmoothStep(0f, lake.Radius, d));
+                _heights[i] = Mathf.Min(original, bowl);
+            }
+            else
+            {
+                _heights[i] = Mathf.Lerp(edge, original, Mathf.SmoothStep(lake.Radius, reach, d));
+            }
+        }
     }
 
     private void BuildMesh()
@@ -116,10 +219,11 @@ public partial class Terrain : Node3D
                 HeightAt(x, z - 1) - HeightAt(x, z + 1)).Normalized();
             normals[i] = normal;
 
-            // Grassy steppe in the valleys, snow higher up, bare rock on steep slopes.
+            // Grassy steppe in the valleys, snow higher up, bare rock on steep slopes, mud around lakes.
             float snow = Mathf.SmoothStep(HeightScale * 0.25f, HeightScale * 0.45f, h);
             float rock = 1f - Mathf.SmoothStep(0.65f, 0.85f, normal.Y);
-            colors[i] = Steppe.Lerp(Snow, snow).Lerp(Rock, rock);
+            float mud = 1f - Mathf.SmoothStep(1f, 3.5f, DistanceFromWater(vertices[i].X, vertices[i].Z));
+            colors[i] = Steppe.Lerp(Snow, snow).Lerp(Rock, rock).Lerp(Mud, mud);
         }
 
         var indices = new int[(r - 1) * (r - 1) * 6];
@@ -175,7 +279,7 @@ public partial class Terrain : Node3D
 
             bool nearSpawn = new Vector2(x, z).Length() < 20f;
             bool tooHigh = h > HeightScale * 0.4f;
-            if (nearSpawn || tooHigh || IsSteep(x, z))
+            if (nearSpawn || tooHigh || IsSteep(x, z) || DistanceFromWater(x, z) < 3f)
                 continue;
 
             var basis = Basis.Identity

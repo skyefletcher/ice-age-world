@@ -4,6 +4,8 @@
 [ext_resource type="Script" path="res://scripts/Terrain.cs" id="2_terrain"]
 [ext_resource type="PackedScene" path="res://scenes/Player.tscn" id="3_player"]
 [ext_resource type="Script" path="res://scripts/Grassland.cs" id="4_grassland"]
+[ext_resource type="Script" path="res://scripts/Water.cs" id="5_water"]
+[ext_resource type="Script" path="res://scripts/Hud.cs" id="6_hud"]
 
 [sub_resource type="ProceduralSkyMaterial" id="SkyMat"]
 sky_top_color = Color(0.42, 0.58, 0.78, 1)
@@ -23,6 +25,27 @@ fog_enabled = true
 fog_light_color = Color(0.8, 0.85, 0.9, 1)
 fog_density = 0.004
 
+[sub_resource type="StyleBoxFlat" id="BarBackground"]
+bg_color = Color(0, 0, 0, 0.5)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[sub_resource type="StyleBoxFlat" id="HungerFill"]
+bg_color = Color(0.9, 0.62, 0.25, 1)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[sub_resource type="StyleBoxFlat" id="ThirstFill"]
+bg_color = Color(0.3, 0.66, 0.96, 1)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
 [node name="Main" type="Node3D"]
 script = ExtResource("1_main")
 
@@ -40,16 +63,20 @@ script = ExtResource("2_terrain")
 [node name="Grassland" type="Node3D" parent="."]
 script = ExtResource("4_grassland")
 
+[node name="Water" type="Node3D" parent="."]
+script = ExtResource("5_water")
+
 [node name="Player" parent="." instance=ExtResource("3_player")]
 
 [node name="Hud" type="CanvasLayer" parent="."]
+script = ExtResource("6_hud")
 
 [node name="Controls" type="Label" parent="Hud"]
 offset_left = 16.0
 offset_top = 12.0
-text = "WASD: move   Shift: run   Space: jump   E: eat   Mouse: look   Wheel: zoom   Esc: free mouse   F11: fullscreen"
+text = "WASD: move   Shift: run   Space: jump   E: eat / drink   Mouse: look   Wheel: zoom   Esc: free mouse   F11: fullscreen"
 
-[node name="EatPrompt" type="Label" parent="Hud"]
+[node name="ActionPrompt" type="Label" parent="Hud"]
 visible = false
 anchors_preset = 7
 anchor_left = 0.5
@@ -67,3 +94,58 @@ theme_override_constants/outline_size = 6
 theme_override_font_sizes/font_size = 24
 text = "Press E to eat grass"
 horizontal_alignment = 1
+
+[node name="Needs" type="VBoxContainer" parent="Hud"]
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 20.0
+offset_top = -90.0
+offset_right = 340.0
+offset_bottom = -20.0
+grow_vertical = 0
+theme_override_constants/separation = 10
+
+[node name="Hunger" type="HBoxContainer" parent="Hud/Needs"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Label" type="Label" parent="Hud/Needs/Hunger"]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 5
+theme_override_font_sizes/font_size = 18
+text = "Hunger"
+
+[node name="Bar" type="ProgressBar" parent="Hud/Needs/Hunger"]
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+theme_override_styles/background = SubResource("BarBackground")
+theme_override_styles/fill = SubResource("HungerFill")
+value = 75.0
+show_percentage = false
+
+[node name="Thirst" type="HBoxContainer" parent="Hud/Needs"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Label" type="Label" parent="Hud/Needs/Thirst"]
+custom_minimum_size = Vector2(70, 0)
+layout_mode = 2
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 5
+theme_override_font_sizes/font_size = 18
+text = "Thirst"
+
+[node name="Bar" type="ProgressBar" parent="Hud/Needs/Thirst"]
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+theme_override_styles/background = SubResource("BarBackground")
+theme_override_styles/fill = SubResource("ThirstFill")
+value = 60.0
+show_percentage = false
