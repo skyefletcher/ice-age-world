@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Godot;
 
 namespace IceAgeWorld;
@@ -15,7 +16,7 @@ public static class ProceduralTextures
     public static StandardMaterial3D Fur(int seed, Color dark, Color light, float scale)
     {
         var heights = HeightField(seed, stretch: 6, streakFrequency: 0.05f, grainWeight: 0.3f);
-        var (albedo, normal) = Textures(heights, h => dark.Lerp(light, h), bumpStrength: 6f);
+        var (albedo, normal) = Textures(heights, (_, h) => dark.Lerp(light, h), bumpStrength: 6f);
         return new StandardMaterial3D
         {
             AlbedoTexture = albedo,
@@ -34,7 +35,7 @@ public static class ProceduralTextures
         var dark = new Color(0.78f, 0.72f, 0.58f);
         var light = new Color(0.95f, 0.92f, 0.82f);
         var heights = HeightField(seed, stretch: 4, streakFrequency: 0.12f, grainWeight: 0.2f);
-        var (albedo, normal) = Textures(heights, h => dark.Lerp(light, h), bumpStrength: 2f);
+        var (albedo, normal) = Textures(heights, (_, h) => dark.Lerp(light, h), bumpStrength: 2f);
         return new StandardMaterial3D
         {
             AlbedoTexture = albedo,
@@ -45,6 +46,81 @@ public static class ProceduralTextures
             Uv1Scale = Vector3.One * 1.5f,
             Roughness = 0.55f,
         };
+    }
+
+    /// <summary>
+    /// Snow leopard coat: pale smoky fur scattered with broken dark rosettes around tawny centres, and small
+    /// solid spots between them.
+    /// </summary>
+    public static StandardMaterial3D SpottedFur(int seed, Color dark, Color light, Color centre, Color spot, float scale)
+    {
+        var heights = HeightField(seed, stretch: 6, streakFrequency: 0.06f, grainWeight: 0.4f);
+        var (ring, inside) = Rosettes(seed);
+        var (albedo, normal) = Textures(heights,
+            (i, h) => dark.Lerp(light, h).Lerp(centre, inside[i] * 0.7f).Lerp(spot, ring[i] * 0.8f), bumpStrength: 4f);
+        return new StandardMaterial3D
+        {
+            AlbedoTexture = albedo,
+            NormalEnabled = true,
+            NormalTexture = normal,
+            NormalScale = 0.6f,
+            Uv1Triplanar = true,
+            Uv1Scale = Vector3.One * scale,
+            Roughness = 1f,
+        };
+    }
+
+    /// <summary>
+    /// Masks for a tileable rosette pattern: <c>Ring</c> is 1 on the dark rosette rims and solid spots, and
+    /// <c>Inside</c> is 1 within each rosette. Distances wrap around the tile's edges so the pattern stays seamless.
+    /// </summary>
+    private static (float[] Ring, float[] Inside) Rosettes(int seed)
+    {
+        var rng = new RandomNumberGenerator { Seed = (ulong)seed };
+        var spots = new List<(float X, float Y, float Radius, float Phase, bool Rosette)>();
+
+        // Rosettes on a jittered grid so they spread evenly, with small spots scattered between them.
+        const int grid = 5;
+        const float cell = Size / (float)grid;
+        for (int gy = 0; gy < grid; gy++)
+        for (int gx = 0; gx < grid; gx++)
+        {
+            spots.Add(((gx + rng.RandfRange(0.2f, 0.8f)) * cell, (gy + rng.RandfRange(0.2f, 0.8f)) * cell,
+                rng.RandfRange(13f, 19f), rng.Randf() * Mathf.Tau, true));
+            spots.Add(((gx + rng.Randf()) * cell, (gy + rng.Randf()) * cell, rng.RandfRange(2.5f, 5f), 0f, false));
+        }
+
+        var ring = new float[Size * Size];
+        var inside = new float[Size * Size];
+        const float rim = 5f;
+        for (int y = 0; y < Size; y++)
+        for (int x = 0; x < Size; x++)
+        {
+            int i = y * Size + x;
+            foreach (var s in spots)
+            {
+                float dx = Mathf.PosMod(x - s.X + Size / 2f, Size) - Size / 2f;
+                float dy = Mathf.PosMod(y - s.Y + Size / 2f, Size) - Size / 2f;
+                float d = Mathf.Sqrt(dx * dx + dy * dy);
+                if (d > s.Radius + rim)
+                    continue;
+
+                if (!s.Rosette)
+                {
+                    ring[i] = Mathf.Max(ring[i], 1f - Mathf.SmoothStep(s.Radius - 1.5f, s.Radius, d));
+                    continue;
+                }
+
+                // The rim is broken into a few blotches by gaps around the circle, as real rosettes are.
+                float angle = Mathf.Atan2(dy, dx);
+                float gaps = Mathf.Sin(angle * 3f + s.Phase) + 0.5f * Mathf.Sin(angle * 5f + s.Phase * 2f);
+                float present = Mathf.SmoothStep(-0.9f, -0.5f, gaps);
+                float onRim = 1f - Mathf.SmoothStep(rim * 0.5f, rim * 0.5f + 1.5f, Mathf.Abs(d - s.Radius));
+                ring[i] = Mathf.Max(ring[i], onRim * present);
+                inside[i] = Mathf.Max(inside[i], 1f - Mathf.SmoothStep(s.Radius - rim, s.Radius - rim * 0.5f, d));
+            }
+        }
+        return (ring, inside);
     }
 
     /// <summary>
@@ -83,13 +159,13 @@ public static class ProceduralTextures
         return heights;
     }
 
-    private static (ImageTexture Albedo, ImageTexture Normal) Textures(float[] heights, System.Func<float, Color> colourOf, float bumpStrength)
+    private static (ImageTexture Albedo, ImageTexture Normal) Textures(float[] heights, System.Func<int, float, Color> colourOf, float bumpStrength)
     {
         var rgb = new byte[Size * Size * 3];
         var bump = new byte[Size * Size];
         for (int i = 0; i < heights.Length; i++)
         {
-            var c = colourOf(heights[i]);
+            var c = colourOf(i, heights[i]);
             rgb[i * 3] = (byte)(Mathf.Clamp(c.R, 0f, 1f) * 255f);
             rgb[i * 3 + 1] = (byte)(Mathf.Clamp(c.G, 0f, 1f) * 255f);
             rgb[i * 3 + 2] = (byte)(Mathf.Clamp(c.B, 0f, 1f) * 255f);

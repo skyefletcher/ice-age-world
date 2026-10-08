@@ -4,16 +4,13 @@ namespace IceAgeWorld;
 
 /// <summary>
 /// The player's animal: camera-relative movement, sprinting, jumping, swimming, eating and drinking,
-/// hunger and thirst, and a third-person orbit camera. The <see cref="Mammoth"/> model animates itself
-/// from the speed, stride and head-dip it is given each frame.
+/// hunger and thirst, and a third-person orbit camera. The player can switch between animals; each
+/// <see cref="Animal"/> supplies its own speeds, size and diet, and animates itself from the speed, stride
+/// and head-dip it is given each frame.
 /// </summary>
 public partial class Player : CharacterBody3D
 {
-    [Export] public float WalkSpeed { get; set; } = 6f;
-    [Export] public float SprintSpeed { get; set; } = 13f;
-    [Export] public float SwimSpeed { get; set; } = 4f;
     [Export] public float Acceleration { get; set; } = 10f;
-    [Export] public float JumpVelocity { get; set; } = 7f;
     [Export] public float TurnSpeed { get; set; } = 6f;
     [Export] public float MouseSensitivity { get; set; } = 0.003f;
 
@@ -22,12 +19,6 @@ public partial class Player : CharacterBody3D
 
     /// <summary>Seconds one drink takes.</summary>
     [Export] public float DrinkDuration { get; set; } = 2.5f;
-
-    /// <summary>How close grass must be to the animal's mouth to be eaten.</summary>
-    [Export] public float EatReach { get; set; } = 2f;
-
-    /// <summary>How far below the water surface the animal's feet hang while it floats.</summary>
-    [Export] public float FloatDepth { get; set; } = 2.2f;
 
     /// <summary>Seconds for a full hunger bar to empty while walking about.</summary>
     [Export] public float HungerDrainSeconds { get; set; } = 960f;
@@ -63,16 +54,18 @@ public partial class Player : CharacterBody3D
     public bool IsFeeding => _feeding != Feeding.None;
     public bool IsSwimming { get; private set; }
 
+    /// <summary>The animal the player is currently playing as.</summary>
+    public Animal Animal => _animals[_animalIndex];
+
+    private AnimalStats Stats => Animal.Stats;
+
     private enum Feeding { None, Eating, Drinking }
-
-    private const float MouthDistance = 3f;
-
-    /// <summary>Water deeper than this (measured at the feet) slows walking down to a wade.</summary>
-    private const float WadeDepth = 0.6f;
 
     private readonly float _gravity = ProjectSettings.GetSetting("physics/3d/default_gravity").AsSingle();
 
-    private Mammoth _model = null!;
+    private Animal[] _animals = [];
+    private int _animalIndex;
+    private CollisionShape3D _collision = null!;
     private Node3D _cameraPivot = null!;
     private SpringArm3D _springArm = null!;
     private Feeding _feeding;
@@ -85,13 +78,48 @@ public partial class Player : CharacterBody3D
 
     public override void _Ready()
     {
-        _model = GetNode<Mammoth>("Model");
+        _collision = GetNode<CollisionShape3D>("CollisionShape3D");
         _cameraPivot = GetNode<Node3D>("CameraPivot");
         _springArm = GetNode<SpringArm3D>("CameraPivot/SpringArm3D");
 
         // Stop the camera arm colliding with our own body.
         _springArm.AddExcludedObject(GetRid());
         _springArm.Rotation = new Vector3(-0.35f, 0, 0);
+
+        // Every animal is built up front, so switching is instant; only the current one is shown.
+        _animals = [new Mammoth { Name = "Mammoth" }, new SnowLeopard { Name = "SnowLeopard" }];
+        foreach (var animal in _animals)
+        {
+            animal.Visible = false;
+            AddChild(animal);
+        }
+        BecomeAnimal(0);
+    }
+
+    /// <summary>Swaps to the next animal, keeping the way the old one was facing.</summary>
+    public void SwitchAnimal()
+    {
+        float yaw = Animal.Rotation.Y;
+        Animal.Visible = false;
+        BecomeAnimal((_animalIndex + 1) % _animals.Length);
+        Animal.Rotation = new Vector3(0, yaw, 0);
+    }
+
+    /// <summary>Shows the given animal and fits the collision body and camera to its size.</summary>
+    private void BecomeAnimal(int index)
+    {
+        _animalIndex = index;
+        Animal.Visible = true;
+
+        // Interrupt any meal in progress; the new animal may not even eat grass.
+        _feeding = Feeding.None;
+        _grassTarget = -1;
+        _headDip = 0f;
+
+        _collision.Shape = new CapsuleShape3D { Radius = Stats.BodyRadius, Height = Stats.BodyHeight };
+        _collision.Position = new Vector3(0, Stats.BodyHeight / 2f, 0);
+        _cameraPivot.Position = new Vector3(0, Stats.CameraHeight, 0);
+        _springArm.SpringLength = Stats.CameraDistance;
     }
 
     /// <summary>Places the player just above the ground at the centre of the map.</summary>
@@ -104,6 +132,12 @@ public partial class Player : CharacterBody3D
 
     public override void _UnhandledInput(InputEvent @event)
     {
+        if (@event.IsActionPressed(InputSetup.SwitchAnimal))
+        {
+            SwitchAnimal();
+            return;
+        }
+
         if (Input.MouseMode != Input.MouseModeEnum.Captured)
             return;
 
@@ -115,10 +149,12 @@ public partial class Player : CharacterBody3D
         }
         else if (@event is InputEventMouseButton { Pressed: true } button)
         {
+            // Zoom range and step scale with the animal, so a small one can be seen up close.
+            float step = Stats.CameraDistance / 11f;
             if (button.ButtonIndex == MouseButton.WheelUp)
-                _springArm.SpringLength = Mathf.Max(4f, _springArm.SpringLength - 1f);
+                _springArm.SpringLength = Mathf.Max(Stats.CameraDistance * 0.35f, _springArm.SpringLength - step);
             else if (button.ButtonIndex == MouseButton.WheelDown)
-                _springArm.SpringLength = Mathf.Min(25f, _springArm.SpringLength + 1f);
+                _springArm.SpringLength = Mathf.Min(Stats.CameraDistance * 2.3f, _springArm.SpringLength + step);
         }
     }
 
@@ -132,13 +168,13 @@ public partial class Player : CharacterBody3D
         float waterDepth = surface.HasValue ? Mathf.Max(0f, surface.Value - GlobalPosition.Y) : 0f;
 
         // Start swimming a little before the float depth, so we don't flicker in and out of it while floating.
-        IsSwimming = waterDepth > FloatDepth - 0.3f;
+        IsSwimming = waterDepth > Stats.FloatDepth * 0.87f;
 
         if (IsSwimming)
         {
             // Spring towards floating height, with a gentle bob.
             float bob = Mathf.Sin(Time.GetTicksMsec() / 1000f * 2f) * 0.06f;
-            float floatY = surface!.Value - FloatDepth + bob;
+            float floatY = surface!.Value - Stats.FloatDepth + bob;
             velocity.Y = (floatY - GlobalPosition.Y) * 3f;
         }
         else if (!IsOnFloor())
@@ -147,7 +183,7 @@ public partial class Player : CharacterBody3D
         }
         else if (!IsFeeding && Input.IsActionJustPressed(InputSetup.Jump))
         {
-            velocity.Y = JumpVelocity;
+            velocity.Y = Stats.JumpVelocity;
         }
 
         // Movement is relative to where the camera is facing, flattened onto the ground plane.
@@ -166,10 +202,10 @@ public partial class Player : CharacterBody3D
         bool sprinting = Input.IsActionPressed(InputSetup.Sprint) && direction != Vector3.Zero && !IsSwimming && !IsWeak;
         UpdateNeeds(dt, exerting: sprinting || IsSwimming);
 
-        float speed = sprinting ? SprintSpeed : WalkSpeed;
+        float speed = sprinting ? Stats.SprintSpeed : Stats.WalkSpeed;
         if (IsSwimming)
-            speed = SwimSpeed;
-        else if (waterDepth > WadeDepth)
+            speed = Stats.SwimSpeed;
+        else if (waterDepth > Stats.WadeDepth)
             speed *= 0.6f;
         if (IsWeak)
             speed *= 0.6f;
@@ -183,7 +219,7 @@ public partial class Player : CharacterBody3D
         if (direction != Vector3.Zero)
         {
             float yaw = Mathf.Atan2(-direction.X, -direction.Z);
-            _model.Rotation = new Vector3(0, Mathf.LerpAngle(_model.Rotation.Y, yaw, TurnSpeed * dt), 0);
+            Animal.Rotation = new Vector3(0, Mathf.LerpAngle(Animal.Rotation.Y, yaw, TurnSpeed * dt), 0);
         }
 
         Velocity = velocity;
@@ -199,9 +235,9 @@ public partial class Player : CharacterBody3D
         }
         else
         {
-            stride = IsOnFloor() ? Mathf.Clamp(groundSpeed / WalkSpeed, 0f, 1f) : 0f;
+            stride = IsOnFloor() ? Mathf.Clamp(groundSpeed / Stats.WalkSpeed, 0f, 1f) : 0f;
         }
-        _model.Animate(groundSpeed, stride, _headDip, dt);
+        Animal.Animate(groundSpeed, stride, _headDip, dt);
 
         if (GlobalPosition.Y < -50f)
             Respawn();
@@ -218,8 +254,8 @@ public partial class Player : CharacterBody3D
 
         if (!IsFeeding && IsOnFloor() && !IsSwimming)
         {
-            var mouth = GlobalPosition - _model.GlobalBasis.Z * MouthDistance;
-            int grass = Grassland?.FindEdible(mouth, EatReach) ?? -1;
+            var mouth = GlobalPosition - Animal.GlobalBasis.Z * Stats.MouthDistance;
+            int grass = Stats.CanGraze ? Grassland?.FindEdible(mouth, Stats.EatReach) ?? -1 : -1;
 
             if (Water?.SurfaceAt(mouth) is not null)
             {

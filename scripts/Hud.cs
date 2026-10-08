@@ -2,7 +2,7 @@ using Godot;
 
 namespace IceAgeWorld;
 
-/// <summary>On-screen display: the hunger and thirst bars and the "Press E to ..." prompt.</summary>
+/// <summary>On-screen display: the current animal's name, the hunger and thirst bars and the "Press E to ..." prompt.</summary>
 public partial class Hud : CanvasLayer
 {
     /// <summary>Below this, a bar flashes red to warn the player.</summary>
@@ -15,12 +15,14 @@ public partial class Hud : CanvasLayer
     private ProgressBar _hungerBar = null!;
     private ProgressBar _thirstBar = null!;
     private Label _actionPrompt = null!;
+    private Label _animalName = null!;
 
     public override void _Ready()
     {
         _hungerBar = GetNode<ProgressBar>("Needs/Hunger/Bar");
         _thirstBar = GetNode<ProgressBar>("Needs/Thirst/Bar");
         _actionPrompt = GetNode<Label>("ActionPrompt");
+        _animalName = GetNode<Label>("Needs/AnimalName");
     }
 
     public override void _Process(double delta)
@@ -28,6 +30,7 @@ public partial class Hud : CanvasLayer
         if (Player is null)
             return;
 
+        _animalName.Text = Player.Animal.DisplayName;
         UpdateBar(_hungerBar, Player.Hunger);
         UpdateBar(_thirstBar, Player.Thirst);
 
