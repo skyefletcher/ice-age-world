@@ -6,8 +6,8 @@ namespace IceAgeWorld;
 /// <summary>
 /// An arctic wolf, built entirely in code to a real wolf's proportions: a deep, narrow chest over long, slender legs
 /// and neat oval paws, a body that tucks up at the waist, and a thick white winter coat with a heavy ruff round the
-/// neck and a bushy tail carried low. Its head is a little shorter in the muzzle than a grey wolf's, with small,
-/// rounded ears (less to freeze), amber eyes and a black nose and lips. It animates its own walk, which lengthens
+/// neck and a bushy tail carried low. Its head is drawn big and cute, with a short, puppyish muzzle, small,
+/// rounded ears (less to freeze), big round amber eyes and a black nose and lips. It animates its own walk, which lengthens
 /// into a gallop at speed, lowers its head and dips its shoulders to drink, swings its tail and flicks its ears.
 /// The model faces -Z.
 /// </summary>
@@ -17,6 +17,14 @@ public partial class ArcticWolf : Animal
     private const int TailSegments = 4;
     private const float TailSegmentLength = 0.11f;
     private const float HeadDownAngle = -1.6f;
+
+    /// <summary>How much bigger the whole head (skull, face, ears and fur) is drawn than it is modelled.</summary>
+    private const float HeadScale = 2f;
+
+    // A cute, puppyish face: a shorter muzzle, and bigger eyes and ears, on top of the head's own scale.
+    private const float MuzzleScale = 0.72f;
+    private const float EyeScale = 1.55f;
+    private const float EarScale = 1.2f;
 
     // How far the body sinks and tips forward while drinking, with the forelegs folding to keep the paws planted.
     private const float CrouchDrop = 0.12f;
@@ -160,6 +168,7 @@ public partial class ArcticWolf : Animal
         Attach(_neck, "Ruff", Strands(rng, OnSegment(rng, 1600, new Vector3(0, -0.02f, 0.06f), headPosition, 0.14f, 0.1f), CoatDrift,
             0.07f, 0.11f, FurRoot, FurTip, _hair, width: 0.03f, colouring: coatColour));
         _head = Pivot(_neck, "Head", headPosition);
+        _head.Scale = Vector3.One * HeadScale;
         BuildHead(_head, rng, coat, coatColour);
 
         _upperLegs = new Node3D[4];
@@ -251,27 +260,33 @@ public partial class ArcticWolf : Animal
         Attach(head, "CheekFur", Strands(rng, OnShape(rng, u => u * cheeks + cheekPosition, 700, u => Mathf.Abs(u.X) > 0.4f && u.Z > -0.5f),
             new Vector3(0, -0.3f, 0.8f), 0.04f, 0.07f, FurRoot, FurTip, _hair, width: 0.02f, colouring: coatColour));
 
-        // Muzzle: tapering forward from the face, its lower edge the black lip line.
-        var muzzlePosition = new Vector3(0, -0.03f, -0.1f);
+        // Muzzle: tapering forward from the face, its lower edge the black lip line. It hangs off a pivot where it
+        // meets the face, so it can be drawn shorter than it is modelled, like a pup's.
+        var snout = Pivot(head, "Snout", new Vector3(0, -0.03f, -0.07f));
+        snout.Scale = Vector3.One * MuzzleScale;
+        var muzzlePosition = new Vector3(0, 0f, -0.03f);
         Func<Vector3, Vector3> muzzle = u =>
         {
             float taper = Mathf.Lerp(1f, 0.7f, Mathf.Max(0f, -u.Z));
             return new Vector3(u.X * 0.045f * taper, u.Y * 0.04f * taper, u.Z * 0.085f);
         };
-        Attach(head, "Muzzle", Ellipsoid(muzzle, 20, 12, face,
+        Attach(snout, "Muzzle", Ellipsoid(muzzle, 20, 12, face,
             (p, n) => Colors.White.Lerp(new Color(0.08f, 0.07f, 0.07f), Mathf.SmoothStep(-0.25f, -0.5f, n.Y) * Mathf.SmoothStep(0f, -0.04f, p.Z))),
             muzzlePosition);
-        Attach(head, "MuzzleFur", Strands(rng, OnShape(rng, u => muzzle(u) + muzzlePosition, 300, u => u.Y > -0.2f && u.Z > -0.7f),
+        Attach(snout, "MuzzleFur", Strands(rng, OnShape(rng, u => muzzle(u) + muzzlePosition, 300, u => u.Y > -0.2f && u.Z > -0.7f),
             new Vector3(0, 0, 1f), 0.01f, 0.018f, FurRoot, FurTip, _hair, width: 0.01f, colouring: coatColour));
-        Attach(head, "Jaw", Ellipsoid(new Vector3(0.032f, 0.018f, 0.06f), 14, 8, coat), new Vector3(0, -0.06f, -0.085f));
-        Attach(head, "Nose", Ellipsoid(new Vector3(0.018f, 0.014f, 0.015f), 14, 10, nose), new Vector3(0, -0.01f, -0.18f));
+        Attach(snout, "Jaw", Ellipsoid(new Vector3(0.032f, 0.018f, 0.06f), 14, 8, coat), new Vector3(0, -0.03f, -0.015f));
+
+        // A slightly bigger, rounder nose button suits the shorter muzzle.
+        Attach(snout, "Nose", Ellipsoid(new Vector3(0.02f, 0.015f, 0.016f), 14, 10, nose), new Vector3(0, 0.02f, -0.11f));
 
         foreach (float side in new[] { -1f, 1f })
         {
-            // Eyes look forward and slightly out, under a fold of brow.
-            Eye(head, new Vector3(side * 0.042f, 0.022f, -0.078f), new Vector3(0, -side * 0.35f, side * 0.15f), 0.0105f,
-                new Color(0.78f, 0.55f, 0.2f), 0.45f);
-            Attach(head, "Brow", Ellipsoid(new Vector3(0.022f, 0.01f, 0.018f), 10, 6, coat), new Vector3(side * 0.04f, 0.037f, -0.07f));
+            // Big, level eyes look forward and slightly out, with the brow raised clear of them; wide pupils and an
+            // open, unfurrowed brow make the face soft and friendly.
+            Eye(head, new Vector3(side * 0.043f, 0.02f, -0.078f), new Vector3(0, -side * 0.35f, 0f), 0.0105f * EyeScale,
+                new Color(0.78f, 0.55f, 0.2f), 0.62f);
+            Attach(head, "Brow", Ellipsoid(new Vector3(0.02f, 0.008f, 0.016f), 10, 6, coat), new Vector3(side * 0.042f, 0.047f, -0.066f));
         }
 
         // Small, rounded triangular ears, upright and set well apart.
@@ -287,6 +302,7 @@ public partial class ArcticWolf : Animal
             _ears[i] = Pivot(head, "Ear", new Vector3(side * 0.05f, 0.06f, 0.02f));
             var tilt = Pivot(_ears[i], "Tilt", Vector3.Zero);
             tilt.Rotation = new Vector3(-0.1f, -side * 0.35f, -side * 0.3f);
+            tilt.Scale = Vector3.One * EarScale;
             Attach(tilt, "Flap", Ellipsoid(earShape, 14, 10, coat), new Vector3(0, 0.03f, 0));
             Attach(tilt, "Inside", Ellipsoid(u => earShape(u) * new Vector3(0.75f, 0.8f, 0.5f), 12, 8, earInside), new Vector3(0, 0.025f, -0.006f));
             Attach(tilt, "EarFur", Strands(rng, OnShape(rng, u => earShape(u) + new Vector3(0, 0.03f, 0), 160, u => u.Z > -0.3f),
