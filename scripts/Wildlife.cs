@@ -74,7 +74,7 @@ public partial class Wildlife : Node3D
 
     /// <summary>
     /// Health the polar bear takes each second from prey of unit bulk while mauling it: a wolf or reindeer falls almost
-    /// at once, a moose in a few seconds, a grown mammoth in ten or so. And from the player, if it's the size of a wolf.
+    /// at once, a moose in a few seconds, a grown mammoth, tough as it is, only after nearly a minute. And from the player, if it's the size of a wolf.
     /// </summary>
     [Export] public float BearMaul { get; set; } = 60f;
     [Export] public float BearPlayerMaul { get; set; } = 15f;
@@ -187,8 +187,17 @@ public partial class Wildlife : Node3D
         /// <summary>Health lost each second to a wound left by a snow leopard's jaws; it ebbs away as the wound closes.</summary>
         public float Bleeding;
 
-        /// <summary>Blood dripping from the wound while it bleeds, made the first time it does.</summary>
-        public CpuParticles3D? Blood;
+        /// <summary>Blood spurting from a bite and dripping from the wound while it bleeds, made the first time it's hurt.</summary>
+        public CpuParticles3D? Drops;
+
+        /// <summary>Seconds more blood spurts from the last bite or maul, on top of any steady bleeding.</summary>
+        public float Spurting;
+
+        /// <summary>Seconds since a drop last spotted the snow below it.</summary>
+        public float DripTimer;
+
+        /// <summary>The pool of blood spreading where it fell, made the first time it falls.</summary>
+        public MeshInstance3D? Pool;
 
         /// <summary>True for a wolf the player killed as a wolf, which is reborn into the player's pack.</summary>
         public bool JoinsPlayer;
@@ -206,6 +215,12 @@ public partial class Wildlife : Node3D
 
         /// <summary>How much meat and muscle it has, by its build: a grown mammoth outweighs an otter some fifty times over.</summary>
         public float Bulk => Animal.Stats.BodyRadius * Animal.Stats.BodyHeight * Size * Size;
+
+        /// <summary>How many times over it shrugs off any harm: a mammoth's hide, hair and fat are a match for anything.</summary>
+        public float Toughness => Animal is Mammoth ? Mammoth.Toughness : 1f;
+
+        /// <summary>The bar over its head showing how much health it has left.</summary>
+        public required HealthBar Bar { get; init; }
     }
 
     private enum Kind { Herd, Pack, Raft, Loner, Hares }
@@ -275,12 +290,25 @@ public partial class Wildlife : Node3D
     {
         bool seen = _eye is not { } eye || beast.Body.GlobalPosition.DistanceSquaredTo(eye) < DrawDistance * DrawDistance;
         beast.Body.Visible = seen;
+        if (seen)
+            beast.Bar.Show(beast.Health, _eye);
         return seen;
     }
     private readonly Dictionary<Animal, Beast> _beasts = [];
     private readonly RandomNumberGenerator _rng = new();
     private Terrain _terrain = null!;
     private Water _water = null!;
+    private BloodTrail _trail = null!;
+
+    /// <summary>Seconds between drops of blood landing in the snow under a bleeding animal.</summary>
+    private const float DripSeconds = 0.12f;
+
+    /// <summary>
+    /// A drop of blood from an animal with <paramref name="stats"/> lands in the snow somewhere under
+    /// <paramref name="wound"/>, e.g. from the player while it is bitten.
+    /// </summary>
+    public void Drip(Vector3 wound, AnimalStats stats) =>
+        _trail.Drip(wound, stats.BodyRadius * 0.5f, 0.15f * Mathf.Max(1f, stats.BodyRadius / 0.4f), _water);
     private float _time;
 
     private IEnumerable<Group> Herds => _groups.Where(g => g.Kind == Kind.Herd);
@@ -297,6 +325,9 @@ public partial class Wildlife : Node3D
     {
         _terrain = terrain;
         _water = water;
+        _trail = new BloodTrail { Name = "BloodTrail" };
+        AddChild(_trail);
+        _trail.Build(terrain);
         _rng.Seed = (ulong)Seed;
 
         for (int h = 0; h < MammothHerds; h++)
@@ -409,7 +440,10 @@ public partial class Wildlife : Node3D
         body.Position = spot with { Y = Mathf.Max(_terrain.GetHeight(spot.X, spot.Z), _water.SurfaceAt(spot) ?? float.MinValue) };
         body.Scale = Vector3.One * size;
 
-        var beast = new Beast { Body = body, Animal = animal, Group = group, Slot = slot * group.Spacing, Size = size };
+        var bar = new HealthBar { Position = new Vector3(0f, animal.Stats.BodyHeight + 1f, 0f) };
+        body.AddChild(bar);
+
+        var beast = new Beast { Body = body, Animal = animal, Group = group, Slot = slot * group.Spacing, Size = size, Bar = bar };
         beast.Yaw = _rng.RandfRange(-Mathf.Pi, Mathf.Pi);
         animal.Rotation = new Vector3(0f, beast.Yaw, 0f);
         group.Members.Add(beast);
@@ -489,8 +523,8 @@ public partial class Wildlife : Node3D
 
     /// <summary>
     /// The player bites a wild animal. <paramref name="strength"/> is how much health the bite takes from an animal of
-    /// unit bulk; a big animal shrugs off more, so an otter dies to one bite, a wolf to a few and a grown mammoth only
-    /// to dozens. Its herd or raft flees from <paramref name="from"/>. Returns true if the bite killed it, or beat a
+    /// unit bulk; a big animal shrugs off more, so an otter dies to one bite, a wolf to a few and a grown mammoth, tougher
+    /// still, only to a great many. Its herd or raft flees from <paramref name="from"/>. Returns true if the bite killed it, or beat a
     /// snow leopard that was fighting the player, so the player stops attacking it either way.
     /// </summary>
     public bool Bite(Animal prey, float strength, Vector3 from)
@@ -513,7 +547,8 @@ public partial class Wildlife : Node3D
     /// </summary>
     private bool Wound(Beast beast, float damage)
     {
-        beast.Health -= damage;
+        beast.Health -= damage / beast.Toughness;
+        Spill(beast);
         if (beast.Group.Kind == Kind.Loner && beast.Group.HuntsPlayer && beast.Health <= RivalGivesIn)
         {
             beast.Health = RivalGivesIn;
@@ -536,11 +571,18 @@ public partial class Wildlife : Node3D
         if (!_beasts.TryGetValue(prey, out var beast) || beast.IsDead || beast.Group.Beaten)
             return;
         beast.Bleeding = Mathf.Max(beast.Bleeding, BleedStrength * strength / beast.Bulk);
-        if (beast.Blood is null)
+        Spill(beast);
+    }
+
+    /// <summary>Blood spurts from a wild animal for a moment, as it does from every bite, maul or wound.</summary>
+    private static void Spill(Beast beast)
+    {
+        if (beast.Drops is null)
         {
-            beast.Blood = BloodDrops(beast.Animal.Stats);
-            beast.Body.AddChild(beast.Blood);
+            beast.Drops = Blood.Drops(beast.Animal.Stats);
+            beast.Body.AddChild(beast.Drops);
         }
+        beast.Spurting = Mathf.Max(beast.Spurting, 0.4f);
     }
 
     /// <summary>The wound bleeds, slower and slower, until it stops; blood drips while it does.</summary>
@@ -557,38 +599,20 @@ public partial class Wildlife : Node3D
         {
             beast.Bleeding = 0f;
         }
-        if (beast.Blood is { } blood)
-            blood.Emitting = beast.Bleeding > 0f;
-    }
+        // Blood runs while the wound bleeds, while jaws are clamped on it, and for a moment after every bite.
+        beast.Spurting = Mathf.Max(0f, beast.Spurting - dt);
+        if (beast.Drops is not { } drops)
+            return;
+        drops.Emitting = beast.Bleeding > 0f || beast.Spurting > 0f || (beast.Gripped && !beast.IsDead);
 
-    /// <summary>
-    /// Dark red drops that fall from the animal's neck and shoulders, where a cat's jaws clamp on. They are in the body's
-    /// own space, so they scale with a youngster.
-    /// </summary>
-    private static CpuParticles3D BloodDrops(AnimalStats stats) => new()
-    {
-        Emitting = false,
-        Amount = 40,
-        Lifetime = 0.9f,
-        LocalCoords = false,
-        Position = new Vector3(0f, stats.BodyHeight * 0.65f, -stats.BodyRadius * 0.6f),
-        EmissionShape = CpuParticles3D.EmissionShapeEnum.Sphere,
-        EmissionSphereRadius = stats.BodyRadius * 0.5f,
-        Direction = Vector3.Down,
-        Spread = 25f,
-        InitialVelocityMin = 0.2f,
-        InitialVelocityMax = 0.8f,
-        ScaleAmountMin = 0.6f,
-        ScaleAmountMax = 1.4f,
-        Mesh = new SphereMesh
+        // Every so often while it bleeds, a drop spots the snow below, leaving a trail behind it.
+        beast.DripTimer += dt;
+        if (drops.Emitting && beast.DripTimer > DripSeconds)
         {
-            Radius = 0.03f,
-            Height = 0.07f,
-            RadialSegments = 6,
-            Rings = 3,
-            Material = new StandardMaterial3D { AlbedoColor = new Color(0.45f, 0.02f, 0.02f), Roughness = 0.3f },
-        },
-    };
+            beast.DripTimer = 0f;
+            Drip(drops.GlobalPosition, beast.Animal.Stats.GrownTo(beast.Size));
+        }
+    }
 
     /// <summary>Takes one mouthful from a carcass. <paramref name="share"/> is how much of a unit-bulk carcass one mouthful eats.</summary>
     public bool EatFrom(Animal carcass, float share)
@@ -1291,6 +1315,9 @@ public partial class Wildlife : Node3D
         beast.Grips = 0;
         beast.Pins = 0;
         beast.JoinsPlayer = false;
+        beast.Spurting = 0f;
+        if (beast.Pool is { } pool)
+            pool.Visible = false;
         // Reborn, a snow leopard makes up its own mind about the player's afresh.
         group.Refuses = null;
         group.HuntsPlayer = false;
@@ -1426,7 +1453,8 @@ public partial class Wildlife : Node3D
                     {
                         if (prey is not null)
                         {
-                            prey.Health -= BearMaul / Mathf.Max(0.05f, prey.Bulk) * dt;
+                            prey.Health -= BearMaul / Mathf.Max(0.05f, prey.Bulk) / prey.Toughness * dt;
+                            Spill(prey);
                             if (!prey.Group.IsPack)
                                 Scare(prey.Group, position);
                         }
@@ -1484,7 +1512,10 @@ public partial class Wildlife : Node3D
                     if (((position - preyAt) with { Y = 0f }).Length() < ring + 0.8f && (prey is not null ? !prey.OnTree : player.WithinBite(position)))
                     {
                         if (prey is not null)
-                            prey.Health -= BiteDamage / Mathf.Max(0.3f, prey.Size * prey.Size) * dt;
+                        {
+                            prey.Health -= BiteDamage / Mathf.Max(0.3f, prey.Size * prey.Size) / prey.Toughness * dt;
+                            Spill(prey);
+                        }
                         else
                             player.Bitten(PlayerBiteDamage * dt, beast.Animal);
                         eat = 0.6f + 0.4f * Mathf.Sin(_time * 12f + index);
@@ -1814,7 +1845,7 @@ public partial class Wildlife : Node3D
             return y;
 
         if (!soft && !beast.IsDead)
-            beast.Health -= beast.Animal.Stats.FallDamage(Animal.DropHeight(-beast.Fall));
+            beast.Health -= beast.Animal.Stats.FallDamage(Animal.DropHeight(-beast.Fall)) / beast.Toughness;
         beast.Fall = 0f;
         return height;
     }
@@ -1839,6 +1870,7 @@ public partial class Wildlife : Node3D
         beast.Body.GlobalPosition = position;
         beast.Animal.Rotation = new Vector3(0f, beast.Yaw, 0f);
         beast.Animal.IsSwimming = afloat && !beast.Perched && !beast.HeldAt.HasValue;
+        Pool(beast, afloat);
 
         // The last of it sinks into the snow as it rots away, just before the rebirth.
         float sink = Mathf.Clamp((beast.DeadTime - (RebirthSeconds - 6f)) / 6f, 0f, 1f);
@@ -1846,6 +1878,33 @@ public partial class Wildlife : Node3D
         beast.Body.Scale = new Vector3(beast.Size, beast.Size * remains, beast.Size);
         if (Seen(beast))
             beast.Animal.Animate(0f, 0f, 0f, dt);
+    }
+
+    /// <summary>
+    /// Blood pools in the snow where the animal fell, and goes on spreading a while. It stays where it fell even if a
+    /// hunter carries the carcass off, but it washes away in water, and there is none under a carcass up a tree.
+    /// </summary>
+    private void Pool(Beast beast, bool afloat)
+    {
+        if (beast.Pool is null)
+        {
+            var rng = new RandomNumberGenerator();
+            rng.Randomize();
+            beast.Pool = Blood.Pool(beast.Animal.Stats, rng);
+            AddChild(beast.Pool);
+        }
+        var pool = beast.Pool;
+        if (!pool.Visible && beast.DeadTime < 1f && !afloat && !beast.Perched && !beast.HeldAt.HasValue
+            && beast.Body.GlobalPosition.Y - _terrain.GroundBelow(beast.Body.GlobalPosition) < 0.5f)
+            Blood.Spill(pool, _terrain, beast.Body.GlobalPosition);
+        if (pool.Visible)
+        {
+            // It shrinks back into the snow with the last of the carcass, just before the rebirth.
+            float fade = 1f - Mathf.Clamp((beast.DeadTime - (RebirthSeconds - 6f)) / 6f, 0f, 1f);
+            Blood.Spread(pool, beast.DeadTime);
+            pool.Scale *= new Vector3(fade, 1f, fade);
+            pool.Visible = fade > 0f;
+        }
     }
 
     /// <summary>A wolf tugs and tears at the carcass, head down, in short jerks.</summary>

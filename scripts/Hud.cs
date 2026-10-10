@@ -20,6 +20,7 @@ public partial class Hud : CanvasLayer
     public Player? Player { get; set; }
 
     private ProgressBar _healthBar = null!;
+    private StyleBoxFlat _healthFill = null!;
     private ProgressBar _hungerBar = null!;
     private ProgressBar _thirstBar = null!;
     private ProgressBar _staminaBar = null!;
@@ -33,6 +34,8 @@ public partial class Hud : CanvasLayer
     public override void _Ready()
     {
         _healthBar = GetNode<ProgressBar>("Needs/Health/Bar");
+        _healthFill = (StyleBoxFlat)_healthBar.GetThemeStylebox("fill").Duplicate();
+        _healthBar.AddThemeStyleboxOverride("fill", _healthFill);
         _hungerBar = GetNode<ProgressBar>("Needs/Hunger/Bar");
         _thirstBar = GetNode<ProgressBar>("Needs/Thirst/Bar");
         _staminaBar = GetNode<ProgressBar>("Needs/Stamina/Bar");
@@ -52,7 +55,9 @@ public partial class Hud : CanvasLayer
         _animalName.Text = Player.IsGrownUp
             ? Player.Animal.DisplayName + (Player.Animal.Stats.LeaderSize > 1f ? " (pack leader)" : "")
             : $"{Player.Animal.YoungName} ({Mathf.FloorToInt(Player.Age * 100f)}% grown)";
-        UpdateBar(_healthBar, Player.Health, Player.Health < 50f);
+        UpdateBar(_healthBar, Player.Health, Player.Health < HealthBar.Low);
+        // Health is coloured like the bars over the wild animals: green, then yellow, then red.
+        _healthFill.BgColor = HealthBar.ColourFor(Player.Health);
         UpdateBar(_hungerBar, Player.Hunger, Player.Hunger < LowThreshold);
         UpdateBar(_thirstBar, Player.Thirst, Player.Thirst < LowThreshold);
 

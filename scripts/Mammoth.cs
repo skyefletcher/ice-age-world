@@ -12,6 +12,12 @@ namespace IceAgeWorld;
 public partial class Mammoth : Animal
 {
     private const int Seed = 7;
+
+    /// <summary>
+    /// How many times over a mammoth shrugs off any harm, from bites, maulings or falls, wild or the player's: under a
+    /// thick hide, a deep coat and a layer of fat, it takes a whole pack, or the polar bear, a long while to bring down.
+    /// </summary>
+    public const float Toughness = 5f;
     private const int TrunkSegments = 4;
     private const float TrunkSegmentLength = 0.6f;
     // The neck bends from deep in the shoulders, so a smaller angle than at the jaw brings the head just as low.
@@ -57,6 +63,8 @@ public partial class Mammoth : Animal
         CanGraze = true,
         BodyRadius = 1.3f,
         BodyHeight = 3.6f,
+        // Its high, humped back and thick coat come right up to the top, so a cat riding it lies up on the hump.
+        BackHeight = 1f,
         CameraHeight = 3f,
         CameraDistance = 11f,
     };

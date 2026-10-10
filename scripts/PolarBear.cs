@@ -50,6 +50,8 @@ public partial class PolarBear : Quadruped
         CanGraze = false,
         BodyRadius = 0.6f * BodyScale,
         BodyHeight = 1.5f * BodyScale,
+        // Its thick-coated back and shoulders come almost to the top, so a cat riding it lies up there.
+        BackHeight = 0.95f,
         CameraHeight = 1.4f * BodyScale,
         CameraDistance = 6.5f * BodyScale,
     };

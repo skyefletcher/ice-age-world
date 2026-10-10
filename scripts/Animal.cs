@@ -69,6 +69,12 @@ public sealed record AnimalStats
     /// </summary>
     public float Strength { get; init; } = 1f;
 
+    /// <summary>
+    /// How high the top of its back is, as a share of <see cref="BodyHeight"/>: where a snow leopard riding it lies.
+    /// Long-legged deer carry their backs low in the capsule, but a mammoth's hump and a bear's shoulders come up to the top.
+    /// </summary>
+    public float BackHeight { get; init; } = 0.72f;
+
     /// <summary>How many computer-controlled animals of the same kind travel with the player's pack or herd.</summary>
     public int Companions { get; init; }
 

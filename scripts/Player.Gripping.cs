@@ -45,6 +45,14 @@ public partial class Player
     private const float LeapSeconds = 0.35f;
 
     /// <summary>
+    /// Seconds since the prey the cat is riding fell dead under it, while it rides the body down; below zero otherwise.
+    /// </summary>
+    private float _ridingDown = -1f;
+
+    /// <summary>The least time the cat rides its kill down, so it stays on a moment after the body hits the ground.</summary>
+    private const float RideDownSeconds = 1.1f;
+
+    /// <summary>
     /// How tall prey has to be, against the cat's own height, for it to ride on its back: a reindeer, moose, mammoth,
     /// polar bear or another snow leopard, but not a wolf, otter or hare, which it pins from the side.
     /// </summary>
@@ -77,21 +85,43 @@ public partial class Player
         var prey = _gripping!;
         string name = prey.DisplayName.ToLower();
 
-        if (Input.IsActionJustPressed(InputSetup.Grip) || Input.IsActionJustPressed(InputSetup.Jump) || IsExhausted)
+        if (_ridingDown >= 0f)
         {
-            LetGo();
-            return;
+            // Riding the kill down: the cat keeps its hold until the body is on the ground, then springs off it.
+            _ridingDown += dt;
+            UpdateNeeds(dt, exerting: false);
+            ActionPrompt = $"The {name} is down!";
+            if ((prey.Dead >= 1f && _ridingDown > RideDownSeconds) || _ridingDown > RideDownSeconds * 4f)
+            {
+                LetGo();
+                return;
+            }
         }
-
-        UpdateNeeds(dt, exerting: true);
-        UpdateStamina(dt, effort: GripEffort);
-        ActionPrompt = $"Holding on to the {name}! G or Space to let go";
-
-        // The more of the cat there is, the harder its jaws clamp, as with a bite.
-        if (Wildlife!.Bite(prey, GripStrength * Size * Size * dt, GlobalPosition))
+        else
         {
-            LetGo();
-            return;
+            if (Input.IsActionJustPressed(InputSetup.Grip) || Input.IsActionJustPressed(InputSetup.Jump) || IsExhausted)
+            {
+                LetGo();
+                return;
+            }
+
+            UpdateNeeds(dt, exerting: true);
+            UpdateStamina(dt, effort: GripEffort);
+            ActionPrompt = $"Holding on to the {name}! G or Space to let go";
+
+            // The more of the cat there is, the harder its jaws clamp, as with a bite.
+            if (Wildlife!.Bite(prey, GripStrength * Size * Size * dt, GlobalPosition))
+            {
+                // Up on the back of prey it has just killed, the cat hangs on and goes down with it; otherwise (pinning
+                // it from the side, or a rival snow leopard that gave in) it simply lets go.
+                if (_onBack && !Wildlife.IsAlive(prey))
+                    _ridingDown = 0f;
+                else
+                {
+                    LetGo();
+                    return;
+                }
+            }
         }
 
         Vector3 place;
@@ -100,9 +130,11 @@ public partial class Player
         if (_onBack)
         {
             // Up on its back, facing the way it goes, a little forward of its middle so the jaws reach the scruff.
+            // As the prey falls, its back comes down to its flank lying on the ground, about its own width up.
             var forward = -prey.GlobalBasis.Z.Normalized();
-            place = prey.GlobalPosition + forward * prey.Stats.BodyRadius * size * 0.5f
-                + Vector3.Up * prey.Stats.BodyHeight * size * BackHeight;
+            float back = Mathf.Lerp(prey.Stats.BodyHeight * prey.Stats.BackHeight, prey.Stats.BodyRadius * 2f,
+                Mathf.SmoothStep(0f, 1f, prey.Lying));
+            place = prey.GlobalPosition + forward * prey.Stats.BodyRadius * size * 0.5f + Vector3.Up * back * size;
             yaw = prey.GlobalRotation.Y;
 
             // Flattened down onto the back, legs bent to grip its sides, rather than standing up on top of it.
@@ -138,9 +170,6 @@ public partial class Player
         Animal.Animate(speed, Mathf.Clamp(speed / Stats.WalkSpeed, 0f, 1f), 0.9f, dt);
     }
 
-    /// <summary>How high up the prey's height the cat's feet go to ride it, crouched low over its back.</summary>
-    private const float BackHeight = 0.72f;
-
     /// <summary>
     /// Lets go of the prey, if the cat has hold of any. The wound keeps bleeding after, and a cat on the prey's back
     /// springs down off it to one side.
@@ -153,10 +182,13 @@ public partial class Player
         Wildlife?.Bleed(_gripping, Size * Size);
         if (_onBack)
         {
+            // Off a fallen kill it leaps clear in a bound; off live prey it just springs down.
+            bool fromKill = _ridingDown >= 0f;
             var side = _gripping.GlobalBasis.X.Normalized();
-            Velocity = side * 4f + Vector3.Up * 3f;
+            Velocity = side * (fromKill ? 6f : 4f) + Vector3.Up * (fromKill ? 6f : 3f);
             _onBack = false;
         }
+        _ridingDown = -1f;
         _gripping = null;
     }
 }

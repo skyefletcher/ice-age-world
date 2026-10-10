@@ -47,17 +47,20 @@ public partial class Player
 
         float toughness = Mathf.Max(0.75f, Mathf.Sqrt(Stats.BodyRadius * Stats.BodyHeight / 0.3f));
         Hurt(damage / toughness);
+        Spurt();
 
         // The player's pack or family turns on whatever is biting it, however big a pack or bear it is.
         if (by is not null && !IsDead && _herds.TryGetValue(Animal, out var family) && family.Attack(by))
             Announce($"Your {family.Word} turns on the {by.DisplayName.ToLower()} to save you!", 3f);
     }
 
-    /// <summary>Takes <paramref name="damage"/> straight off the animal's health, e.g. from a bite or a bad fall.</summary>
+    /// <summary>Takes <paramref name="damage"/> off the animal's health, e.g. from a bite or a bad fall; a mammoth takes far less.</summary>
     private void Hurt(float damage)
     {
         if (IsDead)
             return;
+        if (Animal is Mammoth)
+            damage /= Mammoth.Toughness;
         Health = Mathf.Max(0f, Health - damage);
         _sinceBitten = 0f;
         if (IsDead)
@@ -67,8 +70,39 @@ public partial class Player
     /// <summary>Seconds since the last bite; wounds only start to heal once the animal is safe.</summary>
     private float _sinceBitten = 100f;
 
+    /// <summary>Blood that spurts from the animal while something is biting it.</summary>
+    private CpuParticles3D? _blood;
+    private float _dripTimer;
+
+    /// <summary>Blood spurts from the animal for a moment, from where the teeth or claws went in.</summary>
+    private void Spurt()
+    {
+        if (_blood is null)
+        {
+            // On the player, not the model, which may be drawn scaled up (the snow leopard's is), and that would throw
+            // the drops far too high and wide.
+            _blood = Blood.Drops(Stats);
+            AddChild(_blood);
+        }
+        // Fitted to whichever animal the player is now, however grown, at its neck whichever way it faces.
+        Blood.Fit(_blood, Stats);
+        _blood.Position = _blood.Position.Rotated(Vector3.Up, Animal.Rotation.Y);
+        _blood.Rotation = new Vector3(0f, Animal.Rotation.Y, 0f);
+        _blood.Emitting = true;
+    }
+
     private void Heal(float dt)
     {
+        if (_blood is not null && _sinceBitten > 0.4f)
+            _blood.Emitting = false;
+
+        // While it bleeds, drops spot the snow below it, leaving a trail.
+        _dripTimer += dt;
+        if (_blood is { Emitting: true } && _dripTimer > 0.12f)
+        {
+            _dripTimer = 0f;
+            Wildlife?.Drip(_blood.GlobalPosition, Stats);
+        }
         _sinceBitten += dt;
         if (_sinceBitten > 3f)
             Health = Mathf.Min(100f, Health + HealPerSecond * dt);
@@ -107,6 +141,10 @@ public partial class Player
         Animal.Settle(Posture.Lying, 0.6f, dt);
         Animal.Dead = Mathf.MoveToward(Animal.Dead, 1f, dt / 0.8f);
         Animal.Animate(0f, 0f, 0f, dt);
+
+        // The last of the blood runs out as it falls.
+        if (_blood is not null && Animal.Dead >= 1f)
+            _blood.Emitting = false;
     }
 
     /// <summary>
