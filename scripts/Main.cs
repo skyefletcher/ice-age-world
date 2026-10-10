@@ -32,6 +32,33 @@ public partial class Main : Node3D
         GetNode<Hud>("Hud").Player = player;
 
         Input.MouseMode = Input.MouseModeEnum.Captured;
+        _terrain = terrain;
+        _environment = GetNode<WorldEnvironment>("WorldEnvironment").Environment;
+        _daylight = _environment.AmbientLightEnergy;
+        _fogLight = _environment.FogLightEnergy;
+    }
+
+    private Terrain? _terrain;
+    private Environment? _environment;
+    private float _daylight;
+    private float _fogLight;
+
+    /// <summary>How much of the sky's light still reaches into a cave: the rock overhead shuts out all but a little.</summary>
+    private const float CaveGloom = 0.2f;
+
+    /// <summary>
+    /// Inside a cave the light from the sky fades away, slowly, as eyes take time to get used to the dark, so the cave is
+    /// gloomy within and its mouth glows bright from inside. The sun is already kept out by the shadow of the roof, and the
+    /// haze in the air, lit by the sky outside, goes dim in there too.
+    /// </summary>
+    public override void _Process(double delta)
+    {
+        if (_terrain is null || _environment is null || GetViewport().GetCamera3D() is not { } camera)
+            return;
+        float light = _terrain.IsUnderRoof(camera.GlobalPosition) ? CaveGloom : 1f;
+        float step = (float)delta;
+        _environment.AmbientLightEnergy = Mathf.MoveToward(_environment.AmbientLightEnergy, _daylight * light, _daylight * step);
+        _environment.FogLightEnergy = Mathf.MoveToward(_environment.FogLightEnergy, _fogLight * light, _fogLight * step);
     }
 
     public override void _UnhandledInput(InputEvent @event)

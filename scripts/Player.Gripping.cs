@@ -75,7 +75,7 @@ public partial class Player
         // Ride along pressed against the prey's flank, facing in to it, on the ground or the water beside it.
         float reach = prey.Stats.BodyRadius * Wildlife!.SizeOf(prey) + Stats.BodyRadius * 0.6f;
         var spot = prey.GlobalPosition + _gripSide * reach;
-        float ground = Terrain?.GetHeight(spot.X, spot.Z) ?? spot.Y;
+        float ground = Terrain?.GroundBelow(spot) ?? spot.Y;
         float? surface = Water?.SurfaceAt(spot);
         float height = surface.HasValue && surface.Value - ground > Stats.FloatDepth ? surface.Value - Stats.FloatDepth : ground;
         var moved = (spot with { Y = height }) - GlobalPosition;

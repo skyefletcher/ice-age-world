@@ -1076,7 +1076,7 @@ public partial class Wildlife : Node3D
         // A hunter on the ground that breaks into a run is spotted from far off. One in the air or up a tree is easy to
         // miss until it is right on top of them, which is how eagles catch hares.
         var hunter = Player.GlobalPosition;
-        float ground = _terrain.GetHeight(hunter.X, hunter.Z);
+        float ground = _terrain.GroundBelow(hunter);
         if (!Player.OnTheGround && hunter.Y - ground > 12f)
             return;
         bool rushing = Player.OnTheGround && (Player.Velocity with { Y = 0f }).Length() > Player.Stats.WalkSpeed * 1.2f;
@@ -1393,7 +1393,7 @@ public partial class Wildlife : Node3D
         }
 
         // Walk on the ground, or float at swimming depth over deep water.
-        float ground = _terrain.GetHeight(position.X, position.Z);
+        float ground = _terrain.GroundBelow(position);
         float? surface = _water.SurfaceAt(position);
         float floatDepth = stats.FloatDepth * beast.Size;
         bool swimming = surface.HasValue && surface.Value - ground > floatDepth;
@@ -1617,7 +1617,7 @@ public partial class Wildlife : Node3D
 
         // A body in the water floats; on land it lies on the ground, unless it's in a hunter's jaws or lodged up a tree.
         var position = beast.HeldAt is { } mouth ? mouth + Vector3.Down * beast.Animal.Stats.BodyRadius * beast.Size : beast.Body.GlobalPosition;
-        float ground = _terrain.GetHeight(position.X, position.Z);
+        float ground = _terrain.GroundBelow(position);
         float? surface = _water.SurfaceAt(position);
         bool afloat = surface.HasValue && surface.Value - ground > beast.Animal.Stats.FloatDepth * beast.Size;
         if (beast.HeldAt.HasValue)

@@ -4,7 +4,7 @@ namespace IceAgeWorld;
 
 /// <summary>
 /// A map of the whole world, shown and hidden with M: green steppe, white snowfields and grey crags, blue lakes and
-/// dark specks of forest, drawn once from the terrain, with north at the top. Over it, an arrow shows where the player
+/// dark specks of forest, black marks for cave mouths, drawn once from the terrain, with north at the top. Over it, an arrow shows where the player
 /// is and which way it faces, and dots show where every other animal of its kind is: the wild ones in gold and the
 /// player's own pack, herd or family in green.
 /// </summary>
@@ -150,6 +150,16 @@ public partial class WorldMap : Control
             int px = (int)((at.X + terrain.HalfSize) / step), py = (int)((at.Z + terrain.HalfSize) / step);
             if (px is >= 0 and < Pixels && py is >= 0 and < Pixels)
                 image.SetPixel(px, py, Forest);
+        }
+
+        // Each cave shows as a black mouth at the foot of its mountain, so it can be found again.
+        foreach (var cave in terrain.Caves)
+        {
+            int cx = (int)((cave.Mouth.X + terrain.HalfSize) / step), cy = (int)((cave.Mouth.Y + terrain.HalfSize) / step);
+            for (int dy = -1; dy <= 1; dy++)
+            for (int dx = -1; dx <= 1; dx++)
+                if (cx + dx is >= 0 and < Pixels && cy + dy is >= 0 and < Pixels)
+                    image.SetPixel(cx + dx, cy + dy, Ink);
         }
         return ImageTexture.CreateFromImage(image);
     }

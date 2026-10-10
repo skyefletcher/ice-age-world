@@ -66,7 +66,7 @@ public partial class Player
         float targetSpeed = diving ? Stats.FlySpeed * DiveSpeedFactor : cruise;
         float climb = flapping ? FlapClimbRate : diving ? -DiveSinkRate : -GlideSinkRate;
 
-        float ground = Terrain?.GetHeight(GlobalPosition.X, GlobalPosition.Z) ?? 0f;
+        float ground = Terrain?.GroundBelow(GlobalPosition) ?? 0f;
         if (GlobalPosition.Y - ground > MaxFlightHeight)
             climb = Mathf.Min(climb, 0f);
 

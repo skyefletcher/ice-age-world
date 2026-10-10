@@ -67,7 +67,8 @@ public readonly record struct Tree(Transform3D Transform, TreeBuilder.Shape Shap
 
 /// <summary>
 /// Procedurally generates the ice-age landscape: a noise-based heightmap mesh, matching collision,
-/// a ring of mountains around the edge to keep players in, lake basins and patches of mixed, randomised forest.
+/// a ring of mountains around the edge to keep players in, a few great snowy mountains rising out of the steppe, with
+/// caves dug into their flanks (see Terrain.Caves.cs), lake basins and patches of mixed, randomised forest.
 /// </summary>
 public partial class Terrain : Node3D
 {
@@ -89,6 +90,15 @@ public partial class Terrain : Node3D
     [Export] public float BigLakeRadius { get; set; } = 100f;
 
     [Export] public float BigLakeShore { get; set; } = 20f;
+
+    /// <summary>
+    /// How many great mountains rise out of the steppe inside the world, and how tall and broad they are: craggy, snowy
+    /// massifs towering over the hills, like the ranges that stood above the ice-age mammoth steppe.
+    /// </summary>
+    [Export] public int MountainCount { get; set; } = 4;
+
+    [Export] public Vector2 MountainHeights { get; set; } = new(60f, 95f);
+    [Export] public Vector2 MountainRadii { get; set; } = new(85f, 125f);
 
     /// <summary>Depth of water at the centre of each lake.</summary>
     [Export] public float LakeDepth { get; set; } = 5f;
@@ -115,7 +125,17 @@ public partial class Terrain : Node3D
     private static readonly Color Rock = new(0.45f, 0.45f, 0.48f);
     private static readonly Color Mud = new(0.42f, 0.37f, 0.28f);
 
+    /// <summary>
+    /// Height of the ground underfoot at each vertex: the floor of a cave where one has been dug, so this is what the
+    /// collision follows.
+    /// </summary>
     private float[] _heights = [];
+
+    /// <summary>
+    /// Height of the top of the land at each vertex: the same as <see cref="_heights"/>, except over a cave, where it is
+    /// the mountainside on top of the cave's roof. The two are one array until the caves are dug.
+    /// </summary>
+    private float[] _surface = [];
     private readonly List<Lake> _lakes = [];
     private readonly List<Tree> _trees = [];
 
@@ -181,21 +201,42 @@ public partial class Terrain : Node3D
     public override void _Ready()
     {
         GenerateHeights();
+        DigCaves();
         BuildMesh();
         BuildCollision();
+        BuildCaveRoofs();
         ScatterTrees();
     }
 
-    /// <summary>Ground height at a world-space X/Z position.</summary>
-    public float GetHeight(float x, float z)
+    /// <summary>Height of the top of the land at a world-space X/Z position: over a cave, the top of its roof.</summary>
+    public float GetHeight(float x, float z) => Sample(_surface, x, z);
+
+    /// <summary>Height of the ground underfoot at a world-space X/Z position: inside a cave, its floor.</summary>
+    public float FloorHeight(float x, float z) => Sample(_heights, x, z);
+
+    /// <summary>
+    /// The ground an animal at <paramref name="position"/> stands on: the cave floor if it is down inside a cave, or the
+    /// top of the land if it is up on the mountainside over it (or anywhere else).
+    /// </summary>
+    public float GroundBelow(Vector3 position) =>
+        IsUnderRoof(position) ? FloorHeight(position.X, position.Z) : GetHeight(position.X, position.Z);
+
+    /// <summary>True down inside a cave, under its roof, where the rock overhead keeps out the sky.</summary>
+    public bool IsUnderRoof(Vector3 position)
+    {
+        float top = GetHeight(position.X, position.Z);
+        return top - FloorHeight(position.X, position.Z) > 1f && position.Y < top - 1f;
+    }
+
+    private float Sample(float[] heights, float x, float z)
     {
         float gx = Mathf.Clamp((x + HalfSize) / CellSize, 0, Resolution - 1.001f);
         float gz = Mathf.Clamp((z + HalfSize) / CellSize, 0, Resolution - 1.001f);
         int x0 = (int)gx, z0 = (int)gz;
         float tx = gx - x0, tz = gz - z0;
 
-        float top = Mathf.Lerp(HeightAt(x0, z0), HeightAt(x0 + 1, z0), tx);
-        float bottom = Mathf.Lerp(HeightAt(x0, z0 + 1), HeightAt(x0 + 1, z0 + 1), tx);
+        float top = Mathf.Lerp(At(heights, x0, z0), At(heights, x0 + 1, z0), tx);
+        float bottom = Mathf.Lerp(At(heights, x0, z0 + 1), At(heights, x0 + 1, z0 + 1), tx);
         return Mathf.Lerp(top, bottom, tz);
     }
 
@@ -210,7 +251,7 @@ public partial class Terrain : Node3D
     /// </summary>
     public float GrassAmount(float x, float z)
     {
-        if (IsSteep(x, z) || DistanceFromWater(x, z) < 2.5f)
+        if (IsSteep(x, z) || DistanceFromWater(x, z) < 2.5f || IsInCave(x, z))
             return 0f;
 
         return 1f - Mathf.SmoothStep(HeightScale * 0.18f, HeightScale * 0.28f, GetHeight(x, z));
@@ -225,8 +266,29 @@ public partial class Terrain : Node3D
         return nearest;
     }
 
-    private float HeightAt(int x, int z) =>
-        _heights[Mathf.Clamp(z, 0, Resolution - 1) * Resolution + Mathf.Clamp(x, 0, Resolution - 1)];
+    private float HeightAt(int x, int z) => At(_heights, x, z);
+
+    private float At(float[] heights, int x, int z) =>
+        heights[Mathf.Clamp(z, 0, Resolution - 1) * Resolution + Mathf.Clamp(x, 0, Resolution - 1)];
+
+    /// <summary>
+    /// The normal of the ground at a vertex, worked out from its neighbours' heights. Normals round a cave are taken from
+    /// the top of the land, so the mountainside shades the same on the cave roof as off it, with no seam.
+    /// </summary>
+    private Vector3 NormalAt(float[] heights, int x, int z) =>
+        new Vector3(At(heights, x - 1, z) - At(heights, x + 1, z), 2f * CellSize, At(heights, x, z - 1) - At(heights, x, z + 1)).Normalized();
+
+    /// <summary>Grassy steppe in the valleys, snow higher up, bare rock on steep slopes, mud around lakes.</summary>
+    private Color GroundColour(float x, float z, float h, Vector3 normal)
+    {
+        float snow = Mathf.SmoothStep(HeightScale * 0.25f, HeightScale * 0.45f, h);
+        float rock = 1f - Mathf.SmoothStep(0.65f, 0.85f, normal.Y);
+        // High on the mountains the wind scours the snow off the ridges and steeper faces, baring dark crags.
+        float crags = Mathf.SmoothStep(HeightScale * 1.1f, HeightScale * 1.6f, h) * (1f - Mathf.SmoothStep(0.86f, 0.97f, normal.Y));
+        rock = Mathf.Max(rock, crags);
+        float mud = 1f - Mathf.SmoothStep(1f, 3.5f, DistanceFromWater(x, z));
+        return Steppe.Lerp(Snow, snow).Lerp(Rock, rock).Lerp(Mud, mud);
+    }
 
     private void GenerateHeights()
     {
@@ -239,7 +301,9 @@ public partial class Terrain : Node3D
             Frequency = 0.003f,
         };
 
+        PlaceMountains();
         _heights = new float[Resolution * Resolution];
+        _surface = _heights;
         for (int z = 0; z < Resolution; z++)
         for (int x = 0; x < Resolution; x++)
         {
@@ -253,6 +317,7 @@ public partial class Terrain : Node3D
             // Flatten the spawn area in the middle of the map.
             float fromCentre = new Vector2(wx, wz).Length();
             h *= Mathf.Lerp(0.3f, 1f, Mathf.SmoothStep(0f, 60f, fromCentre));
+            h += MountainHeight(wx, wz);
 
             // Steep mountains near the edge form a natural world boundary.
             float toEdge = HalfSize - Mathf.Max(Mathf.Abs(wx), Mathf.Abs(wz));
@@ -271,8 +336,7 @@ public partial class Terrain : Node3D
         _lakes.Clear();
 
         // The big lake goes in first, filling the north-east corner just inside the mountains, so the small ones keep clear of it.
-        float corner = HalfSize - MountainWidth - BigLakeRadius - BigLakeShore;
-        var bigCentre = new Vector2(corner, -corner);
+        var bigCentre = BigLakeCentre;
         var big = new Lake(bigCentre, BigLakeRadius, WaterLine(bigCentre, BigLakeRadius, BigLakeShore), BigLakeShore);
         _lakes.Add(big);
         Carve(big);
@@ -304,6 +368,15 @@ public partial class Terrain : Node3D
         // The lake by the spawn point comes first, and the big lake second, so the otter rafts live on those two.
         _lakes.RemoveAt(0);
         _lakes.Insert(Mathf.Min(1, _lakes.Count), big);
+    }
+
+    private Vector2 BigLakeCentre
+    {
+        get
+        {
+            float corner = HalfSize - MountainWidth - BigLakeRadius - BigLakeShore;
+            return new Vector2(corner, -corner);
+        }
     }
 
     /// <summary>
@@ -370,24 +443,23 @@ public partial class Terrain : Node3D
             float h = HeightAt(x, z);
             vertices[i] = new Vector3(x * CellSize - HalfSize, h, z * CellSize - HalfSize);
 
-            var normal = new Vector3(
-                HeightAt(x - 1, z) - HeightAt(x + 1, z),
-                2f * CellSize,
-                HeightAt(x, z - 1) - HeightAt(x, z + 1)).Normalized();
+            // Inside a cave the floor is bare, dusty rock; everywhere else the ground shades as the top of the land does.
+            bool dug = _caveMask[i];
+            var normal = NormalAt(dug ? _heights : _surface, x, z);
             normals[i] = normal;
-
-            // Grassy steppe in the valleys, snow higher up, bare rock on steep slopes, mud around lakes.
-            float snow = Mathf.SmoothStep(HeightScale * 0.25f, HeightScale * 0.45f, h);
-            float rock = 1f - Mathf.SmoothStep(0.65f, 0.85f, normal.Y);
-            float mud = 1f - Mathf.SmoothStep(1f, 3.5f, DistanceFromWater(vertices[i].X, vertices[i].Z));
-            colors[i] = Steppe.Lerp(Snow, snow).Lerp(Rock, rock).Lerp(Mud, mud);
+            colors[i] = dug ? CaveFloor(vertices[i], normal) : GroundColour(vertices[i].X, vertices[i].Z, h, normal);
         }
 
-        var indices = new int[(r - 1) * (r - 1) * 6];
+        // Ground under a cave roof is left out: the cave's own floor is built with the roof (see BuildCaveRoofs), coloured
+        // as the inside of a cave, and the mountainside over it with the roof's top.
+        int roofed = Array.FindAll(_roofed, cell => cell).Length;
+        var indices = new int[((r - 1) * (r - 1) - roofed) * 6];
         int k = 0;
         for (int z = 0; z < r - 1; z++)
         for (int x = 0; x < r - 1; x++)
         {
+            if (IsRoofed(x, z))
+                continue;
             int a = z * r + x, b = a + 1, c = a + r, d = c + 1;
             indices[k++] = a; indices[k++] = b; indices[k++] = c;
             indices[k++] = b; indices[k++] = d; indices[k++] = c;
@@ -473,7 +545,7 @@ public partial class Terrain : Node3D
 
             bool nearSpawn = new Vector2(x, z).Length() < 20f;
             bool tooHigh = h > HeightScale * 0.4f;
-            if (nearSpawn || tooHigh || IsSteep(x, z) || DistanceFromWater(x, z) < 3f)
+            if (nearSpawn || tooHigh || IsSteep(x, z) || DistanceFromWater(x, z) < 3f || IsInCave(x, z, margin: 4f))
                 continue;
 
             float density = forestNoise.GetNoise2D(x, z) * 0.5f + 0.5f;

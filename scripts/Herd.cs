@@ -198,7 +198,7 @@ public partial class Herd : Node3D
         var member = new Member { Body = body, Animal = animal, Slot = SlotFor(_members.Count) * _spacing, Size = size };
         float yaw = Leader.Animal.Rotation.Y;
         var spot = at ?? Leader.GlobalPosition + member.Slot.Rotated(Vector3.Up, yaw);
-        spot.Y = Leader.Terrain?.GetHeight(spot.X, spot.Z) ?? Leader.GlobalPosition.Y;
+        spot.Y = Leader.Terrain?.GroundBelow(spot with { Y = Leader.GlobalPosition.Y }) ?? Leader.GlobalPosition.Y;
         body.GlobalPosition = spot;
         member.Yaw = yaw;
         animal.Rotation = new Vector3(0f, yaw, 0f);
@@ -244,7 +244,7 @@ public partial class Herd : Node3D
         {
             LetGo(member);
             var spot = Leader.GlobalPosition + member.Slot.Rotated(Vector3.Up, yaw);
-            spot.Y = Leader.Terrain?.GetHeight(spot.X, spot.Z) ?? Leader.GlobalPosition.Y;
+            spot.Y = Leader.Terrain?.GroundBelow(spot with { Y = Leader.GlobalPosition.Y }) ?? Leader.GlobalPosition.Y;
             member.Body.GlobalPosition = spot;
             member.Velocity = Vector3.Zero;
             member.Yaw = yaw;
@@ -420,7 +420,7 @@ public partial class Herd : Node3D
         }
 
         // Walk on the ground, or float at swimming depth over deep water.
-        float ground = terrain?.GetHeight(position.X, position.Z) ?? position.Y;
+        float ground = terrain?.GroundBelow(position) ?? position.Y;
         float? surface = Leader.Water?.SurfaceAt(position);
         bool swimming = surface.HasValue && surface.Value - ground > stats.FloatDepth;
         float height = swimming ? surface!.Value - stats.FloatDepth : ground;
@@ -463,7 +463,7 @@ public partial class Herd : Node3D
 
         float reach = prey.Stats.BodyRadius * wildlife.SizeOf(prey) + stats.BodyRadius * member.Size * 0.6f;
         var spot = prey.GlobalPosition + member.GripSide * reach;
-        float ground = Leader.Terrain?.GetHeight(spot.X, spot.Z) ?? spot.Y;
+        float ground = Leader.Terrain?.GroundBelow(spot) ?? spot.Y;
         float? surface = Leader.Water?.SurfaceAt(spot);
         float floatDepth = stats.FloatDepth * member.Size;
         bool swimming = surface.HasValue && surface.Value - ground > floatDepth;
