@@ -10,6 +10,7 @@
 [ext_resource type="Texture2D" path="res://icons/drop.svg" id="8_drop"]
 [ext_resource type="Texture2D" path="res://icons/bolt.svg" id="9_bolt"]
 [ext_resource type="Script" path="res://scripts/Wildlife.cs" id="10_wildlife"]
+[ext_resource type="Texture2D" path="res://icons/heart.svg" id="11_heart"]
 
 [sub_resource type="ProceduralSkyMaterial" id="SkyMat"]
 sky_top_color = Color(0.42, 0.58, 0.78, 1)
@@ -31,6 +32,13 @@ fog_density = 0.004
 
 [sub_resource type="StyleBoxFlat" id="BarBackground"]
 bg_color = Color(0, 0, 0, 0.5)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[sub_resource type="StyleBoxFlat" id="HealthFill"]
+bg_color = Color(0.9, 0.26, 0.3, 1)
 corner_radius_top_left = 5
 corner_radius_top_right = 5
 corner_radius_bottom_right = 5
@@ -88,7 +96,7 @@ script = ExtResource("6_hud")
 [node name="Controls" type="Label" parent="Hud"]
 offset_left = 16.0
 offset_top = 12.0
-text = "WASD: move   Shift: run / dive   Space: jump / fly / leap   E: eat / drink   F / click: attack   Tab: switch animal   Mouse: look   Wheel: zoom   Esc: free mouse   F11: fullscreen"
+text = "WASD: move   Shift: run / dive   Space: jump / fly / leap   E: eat / drink   F / click: attack   G / right-click: leap and hold (snow leopard)   Tab: switch animal   Mouse: look   Wheel: zoom   Esc: free mouse   F11: fullscreen"
 
 [node name="ActionPrompt" type="Label" parent="Hud"]
 visible = false
@@ -98,9 +106,9 @@ anchor_top = 1.0
 anchor_right = 0.5
 anchor_bottom = 1.0
 offset_left = -150.0
-offset_top = -90.0
+offset_top = -262.0
 offset_right = 150.0
-offset_bottom = -54.0
+offset_bottom = -226.0
 grow_horizontal = 2
 grow_vertical = 0
 theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
@@ -114,7 +122,7 @@ anchors_preset = 2
 anchor_top = 1.0
 anchor_bottom = 1.0
 offset_left = 20.0
-offset_top = -172.0
+offset_top = -206.0
 offset_right = 340.0
 offset_bottom = -20.0
 grow_vertical = 0
@@ -126,6 +134,35 @@ theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
 theme_override_constants/outline_size = 6
 theme_override_font_sizes/font_size = 22
 text = "Woolly mammoth"
+
+[node name="Health" type="HBoxContainer" parent="Hud/Needs"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Icon" type="TextureRect" parent="Hud/Needs/Health"]
+custom_minimum_size = Vector2(32, 32)
+layout_mode = 2
+texture = ExtResource("11_heart")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Label" type="Label" parent="Hud/Needs/Health"]
+custom_minimum_size = Vector2(80, 0)
+layout_mode = 2
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 5
+theme_override_font_sizes/font_size = 18
+text = "Health"
+
+[node name="Bar" type="ProgressBar" parent="Hud/Needs/Health"]
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 4
+theme_override_styles/background = SubResource("BarBackground")
+theme_override_styles/fill = SubResource("HealthFill")
+value = 100.0
+show_percentage = false
 
 [node name="Hunger" type="HBoxContainer" parent="Hud/Needs"]
 layout_mode = 2

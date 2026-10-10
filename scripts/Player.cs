@@ -8,7 +8,7 @@ namespace IceAgeWorld;
 /// The player's animal: camera-relative movement, sprinting, jumping, swimming, eating and drinking,
 /// hunger, thirst and stamina, and a third-person orbit camera. The player can switch between animals; each
 /// <see cref="Animal"/> supplies its own speeds, size, diet and abilities, and animates itself from the speed,
-/// stride and head-dip it is given each frame. Flying and tree climbing live in their own files.
+/// stride and head-dip it is given each frame. Flying, tree climbing, hunting, growing up, and being hunted and dying live in their own files.
 /// </summary>
 public partial class Player : CharacterBody3D
 {
@@ -64,6 +64,29 @@ public partial class Player : CharacterBody3D
     /// <summary>What the player can do right now (e.g. "Press E to drink"), or null if nothing.</summary>
     public string? ActionPrompt { get; private set; }
 
+    /// <summary>A short piece of news to show for a few seconds, e.g. a new wolf joining the pack, or null.</summary>
+    public string? Message => _messageTime > 0f ? _message : null;
+
+    private string? _message;
+    private float _messageTime;
+
+    /// <summary>
+    /// A wild animal the player killed is reborn into the player's own pack or herd of that kind, if it has one, e.g. a
+    /// wolf beaten in a fight joining the pack that beat it.
+    /// </summary>
+    public void Recruit(Animal fallen)
+    {
+        foreach (var (animal, herd) in _herds)
+        {
+            if (animal.GetType() != fallen.GetType())
+                continue;
+            herd.Recruit();
+            _message = $"The {fallen.DisplayName.ToLower()} you beat is reborn: a pup in your pack, and one in its own!";
+            _messageTime = 6f;
+            return;
+        }
+    }
+
     public bool IsFeeding => _feeding != Feeding.None;
     public bool IsSwimming { get; private set; }
 
@@ -72,8 +95,6 @@ public partial class Player : CharacterBody3D
 
     /// <summary>The animal the player is currently playing as.</summary>
     public Animal Animal => _animals[_animalIndex];
-
-    private AnimalStats Stats => Animal.Stats;
 
     private enum Feeding { None, Eating, Drinking }
 
@@ -114,6 +135,9 @@ public partial class Player : CharacterBody3D
             new ArcticWolf { Name = "ArcticWolf" },
             new SeaOtter { Name = "SeaOtter" },
             new BaldEagle { Name = "BaldEagle" },
+            new Reindeer { Name = "Reindeer" },
+            new Moose { Name = "Moose" },
+            new PolarBear { Name = "PolarBear" },
         ];
         foreach (var animal in _animals)
         {
@@ -153,7 +177,7 @@ public partial class Player : CharacterBody3D
         Animal.Rotation = new Vector3(0, yaw, 0);
     }
 
-    /// <summary>Shows the given animal and fits the collision body and camera to its size.</summary>
+    /// <summary>Shows the given animal and fits the collision body and camera to its size and age.</summary>
     private void BecomeAnimal(int index)
     {
         _animalIndex = index;
@@ -170,10 +194,8 @@ public partial class Player : CharacterBody3D
         _headDip = 0f;
         StopHunting();
 
-        _collision.Shape = new CapsuleShape3D { Radius = Stats.BodyRadius, Height = Stats.BodyHeight };
-        _collision.Position = new Vector3(0, Stats.BodyHeight / 2f, 0);
-        _cameraPivot.Position = new Vector3(0, Stats.CameraHeight, 0);
-        _springArm.SpringLength = Stats.CameraDistance;
+        _fittedSize = 0f;
+        FitToSize();
 
         if (_herds.TryGetValue(Animal, out var herd))
         {
@@ -202,7 +224,8 @@ public partial class Player : CharacterBody3D
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (@event.IsActionPressed(InputSetup.SwitchAnimal))
+        // The dead choose what to be reborn as instead (see Hud).
+        if (@event.IsActionPressed(InputSetup.SwitchAnimal) && !IsDead)
         {
             SwitchAnimal();
             return;
@@ -232,6 +255,14 @@ public partial class Player : CharacterBody3D
     {
         float dt = (float)delta;
         ActionPrompt = null;
+        _messageTime -= dt;
+        if (IsDead)
+        {
+            LieDead(dt);
+            return;
+        }
+        Grow(dt);
+        Heal(dt);
 
         // Movement is relative to where the camera is facing, flattened onto the ground plane.
         var input = Input.GetVector(InputSetup.MoveLeft, InputSetup.MoveRight, InputSetup.MoveForward, InputSetup.MoveBack);
@@ -242,6 +273,9 @@ public partial class Player : CharacterBody3D
 
         switch (_mode)
         {
+            case Mode.Ground when IsGripping:
+                HoldOn(dt);
+                break;
             case Mode.Flying:
                 Fly(dt, direction);
                 break;

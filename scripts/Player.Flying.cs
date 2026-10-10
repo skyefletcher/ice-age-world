@@ -90,6 +90,8 @@ public partial class Player
 
         Velocity = velocity;
         MoveAndSlide();
+        if (Stats.Can(Ability.Hunt))
+            Swoop();
 
         // Splash down on water, or land when the feet touch the ground.
         float? surface = Water?.SurfaceAt(GlobalPosition);

@@ -136,7 +136,7 @@ public static class TreeBuilder
         float trunkRadius = height * rng.RandfRange(0.025f, 0.038f);
         BuildTrunk(mesh, rng, trunkHeight, trunkRadius, 6, _ => Bark);
 
-        DeadBranches(mesh, branches, rng, crownBase, trunkHeight, trunkRadius, rng.RandiRange(2, 6));
+        DeadBranches(mesh, branches, rng, crownBase, trunkHeight, trunkRadius, rng.RandiRange(5, 10));
 
         float top = trunkHeight;
         for (int t = 0; t < tiers; t++)
@@ -150,14 +150,14 @@ public static class TreeBuilder
             var colour = Shade(needles, Mathf.Lerp(0.7f, 1.1f, f));
             float snowCover = Mathf.SmoothStep(snowLine, 1f, f) * rng.RandfRange(0.6f, 1f);
 
-            // A whorl of branches spreads out from the trunk just beneath the foliage, so they show from below. They
+            // A whorl of branches stands straight out from the trunk just beneath the foliage, so they show from below. They
             // are buried in needles, so they are no place for a climber to walk: it would vanish from sight.
-            int whorl = rng.RandiRange(4, 7);
+            int whorl = rng.RandiRange(8, 12);
             float turn = rng.Randf() * Mathf.Tau;
             for (int b = 0; b < whorl; b++)
             {
                 var to = Outward(turn + (b + rng.RandfRange(-0.3f, 0.3f)) * Mathf.Tau / whorl) * radius * rng.RandfRange(0.85f, 1.05f)
-                         + Vector3.Up * (tierBase - tall * rng.RandfRange(0.08f, 0.16f));
+                         + Vector3.Up * (tierBase - tall * rng.RandfRange(0f, 0.03f));
                 BuildBranch(mesh, rng, Vector3.Up * tierBase, to, radius * 0.08f,
                     Mathf.Max(TrunkRadiusAt(tierBase, trunkHeight, trunkRadius) * 0.45f, 0.05f), Bark);
             }
@@ -171,7 +171,7 @@ public static class TreeBuilder
 
     /// <summary>
     /// Scots pine sheds its lower branches as it grows, leaving a long bare trunk, rough and brown at the foot and
-    /// flaking orange higher up. Its crown is a few flat, snow-topped clumps of needles held out on upswept limbs.
+    /// flaking orange higher up. Its crown is many flat, snow-topped clumps of needles held out on level limbs.
     /// </summary>
     private static Shape BuildPine(RandomNumberGenerator rng, Material material)
     {
@@ -185,7 +185,7 @@ public static class TreeBuilder
             f => Bark.Lerp(orange, Mathf.SmoothStep(0.35f, 0.7f, f)));
 
         float crownBase = height * rng.RandfRange(0.58f, 0.7f);
-        DeadBranches(mesh, branches, rng, crownBase, trunkHeight, trunkRadius, rng.RandiRange(1, 4));
+        DeadBranches(mesh, branches, rng, crownBase, trunkHeight, trunkRadius, rng.RandiRange(3, 7));
 
         var needles = new Color(
             rng.RandfRange(0.13f, 0.18f),
@@ -193,7 +193,7 @@ public static class TreeBuilder
             rng.RandfRange(0.15f, 0.2f));
         float snow = rng.RandfRange(0.5f, 0.9f);
 
-        int limbs = rng.RandiRange(5, 8);
+        int limbs = rng.RandiRange(10, 14);
         float turn = rng.Randf() * Mathf.Tau;
         for (int l = 0; l < limbs; l++)
         {
@@ -201,7 +201,7 @@ public static class TreeBuilder
             float y = Mathf.Lerp(crownBase, trunkHeight * 0.92f, f);
             float length = height * rng.RandfRange(0.15f, 0.24f) * Mathf.Lerp(1f, 0.55f, f);
             var outward = Outward(turn + l * 2.4f + rng.RandfRange(-0.4f, 0.4f));
-            var end = outward * length + Vector3.Up * (y + length * rng.RandfRange(0.35f, 0.7f));
+            var end = outward * length + Vector3.Up * (y + length * rng.RandfRange(-0.04f, 0.06f));
 
             // A climber can walk out along the limb as far as the clump of needles at its end.
             float spread = rng.RandfRange(1.1f, 1.8f);
@@ -243,7 +243,7 @@ public static class TreeBuilder
 
         float crownBase = height * rng.RandfRange(0.15f, 0.25f);
         float crownRadius = height * rng.RandfRange(0.16f, 0.22f);
-        DeadBranches(mesh, branches, rng, crownBase, trunkHeight, trunkRadius, rng.RandiRange(1, 3));
+        DeadBranches(mesh, branches, rng, crownBase, trunkHeight, trunkRadius, rng.RandiRange(3, 6));
 
         // Some larches have only just turned and are yellow; others are deep orange and about to drop.
         var gold = new Color(
@@ -252,7 +252,7 @@ public static class TreeBuilder
             rng.RandfRange(0.12f, 0.2f));
         float snow = rng.RandfRange(0f, 0.3f);
 
-        int limbs = rng.RandiRange(11, 15);
+        int limbs = rng.RandiRange(20, 26);
         float turn = rng.Randf() * Mathf.Tau;
         for (int l = 0; l < limbs; l++)
         {
@@ -260,9 +260,9 @@ public static class TreeBuilder
             float y = Mathf.Lerp(crownBase, trunkHeight * 0.95f, f);
             float length = crownRadius * Mathf.Lerp(1f, 0.25f, f) * rng.RandfRange(0.85f, 1.1f);
 
-            // Larch branches dip from the trunk and sweep up again at the tips.
-            var end = Outward(turn + l * 2.4f) * length + Vector3.Up * (y + length * rng.RandfRange(0.05f, 0.25f));
-            BuildLimb(mesh, branches, rng, Vector3.Up * y, end, length * 0.12f,
+            // Larch branches stand out level from the trunk, dipping a little in the middle under their tufts.
+            var end = Outward(turn + l * 2.4f) * length + Vector3.Up * (y + length * rng.RandfRange(-0.03f, 0.04f));
+            BuildLimb(mesh, branches, rng, Vector3.Up * y, end, length * 0.05f,
                 Mathf.Max(TrunkRadiusAt(y, trunkHeight, trunkRadius) * 0.4f, 0.04f), bark);
 
             var colour = Shade(gold, Mathf.Lerp(0.75f, 1.1f, f));
@@ -285,7 +285,7 @@ public static class TreeBuilder
 
     /// <summary>
     /// Birch bark is chalk white, scored with black marks and dark and rugged at the foot. In winter the tree stands
-    /// bare, its upswept limbs splitting into fine purple-brown twigs, with a few last yellow leaves hanging on.
+    /// bare, its level limbs splitting into fine purple-brown twigs, with a few last yellow leaves hanging on.
     /// </summary>
     private static Shape BuildBirch(RandomNumberGenerator rng, Material material)
     {
@@ -302,7 +302,7 @@ public static class TreeBuilder
         var twigs = new Color(0.3f, 0.2f, 0.2f);
         var leaves = new Color(0.85f, 0.68f, 0.2f);
 
-        int limbs = rng.RandiRange(8, 11);
+        int limbs = rng.RandiRange(15, 20);
         float turn = rng.Randf() * Mathf.Tau;
         for (int l = 0; l < limbs; l++)
         {
@@ -310,7 +310,7 @@ public static class TreeBuilder
             float y = Mathf.Lerp(height * 0.35f, trunkHeight * 0.9f, f);
             float length = height * rng.RandfRange(0.18f, 0.27f) * Mathf.Lerp(1f, 0.5f, f);
             var outward = Outward(turn + l * 2.4f + rng.RandfRange(-0.3f, 0.3f));
-            var end = outward * length + Vector3.Up * (y + length * rng.RandfRange(0.6f, 1f));
+            var end = outward * length + Vector3.Up * (y + length * rng.RandfRange(-0.04f, 0.06f));
             BuildLimb(mesh, branches, rng, Vector3.Up * y, end, 0.05f,
                 Mathf.Max(TrunkRadiusAt(y, trunkHeight, trunkRadius) * 0.5f, 0.05f), white);
 
@@ -321,7 +321,7 @@ public static class TreeBuilder
                 var from = Vector3.Up * y + (end - Vector3.Up * y) * rng.RandfRange(0.5f, 0.95f);
                 var fan = outward.Rotated(Vector3.Up, rng.RandfRange(-1f, 1f));
                 float reach = length * rng.RandfRange(0.35f, 0.55f);
-                var to = from + fan * reach + Vector3.Up * reach * rng.RandfRange(0.2f, 0.7f);
+                var to = from + fan * reach + Vector3.Up * reach * rng.RandfRange(0f, 0.15f);
                 BuildBranch(mesh, rng, from, to, 0.04f, 0.05f, twigs);
 
                 if (rng.Randf() < 0.55f)
@@ -344,7 +344,7 @@ public static class TreeBuilder
         {
             float y = crownBase * rng.RandfRange(0.35f, 0.95f);
             var to = Outward(rng.Randf() * Mathf.Tau) * rng.RandfRange(0.6f, 1.8f)
-                     + Vector3.Up * (y + rng.RandfRange(-0.3f, 0.25f));
+                     + Vector3.Up * (y + rng.RandfRange(-0.1f, 0.1f));
             BuildLimb(mesh, branches, rng, Vector3.Up * y, to, 0.05f, TrunkRadiusAt(y, trunkHeight, trunkRadius) * 0.3f, DeadWood);
         }
     }

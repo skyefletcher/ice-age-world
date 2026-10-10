@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-An ice-age animal survival game (inspired by Savannah Life) in Godot 4.7 .NET with C# (`net10.0`, nullable enabled, namespace `IceAgeWorld`). The player switches (Tab) between a woolly mammoth and a snow leopard, and roams procedurally generated terrain, eating grass and drinking from lakes to keep hunger and thirst up.
+An ice-age animal survival game (inspired by Savannah Life) in Godot 4.7 .NET with C# (`net10.0`, nullable enabled, namespace `IceAgeWorld`). The player switches (Tab) between eight animals (woolly mammoth, snow leopard, arctic wolf, sea otter, bald eagle, reindeer, moose and polar bear), and roams procedurally generated terrain, eating grass and drinking from lakes to keep hunger and thirst up.
 
 ## Commands
 
@@ -21,7 +21,7 @@ Everything visual is built in code, so check appearance by rendering it. Add a t
 
 **Scene wiring.** `Main.tscn` holds Terrain, Grassland, Water, Player and Hud nodes. `Main._Ready` registers key bindings in code (`InputSetup.Register()`; there are none in `project.godot`). It then wires the systems together explicitly: Terrain generates in its own `_Ready`, then `Grassland.Populate(terrain)`, `Water.Build(terrain)`, and finally Player gets references to all three and `Respawn()`s. Terrain is the shared source of truth: heights, `Lakes`, steepness, grass amount and distance from water.
 
-**Player vs. Animal.** `Player` (a `CharacterBody3D`) owns all gameplay: movement, swimming, eating/drinking, hunger/thirst, and the orbit camera. It builds every `Animal` up front as hidden children and shows only the current one. On a switch it resizes the collision capsule from the animal's `AnimalStats`. Each frame it calls `Animal.Animate(speed, stride, eat, dt)` and the animal poses itself. To add an animal: subclass `Animal`, supply `DisplayName` and `Stats`, build the model in `_Ready`, implement `Animate`, and add it to the `_animals` array in `Player._Ready`.
+**Player vs. Animal.** `Player` (a `CharacterBody3D`) owns all gameplay: movement, swimming, eating/drinking, hunger/thirst, and the orbit camera. It builds every `Animal` up front as hidden children and shows only the current one. On a switch it resizes the collision capsule from the animal's `AnimalStats`. Each frame it calls `Animal.Animate(speed, stride, eat, dt)` and the animal poses itself. To add an animal: subclass `Animal`, supply `DisplayName`, `YoungName` and `Stats`, build the model in `_Ready`, implement `Animate`, and add it to the `_animals` array in `Player._Ready`. A big four-legged animal can subclass `Quadruped` instead, which supplies the legs, gaits, drinking, sitting, lying and death pose: give it proportions, build the body, head, feet and tail in `Build`, and move its ears and tail in `AnimateExtras`.
 
 **Animals are built entirely in code, facing -Z.** There are no imported meshes. Models are trees of `Node3D` pivots (via `Pivot`), so joints can rotate in `Animate`. Meshes hang off the pivots via `Attach`. The shared helpers live in `Animal.cs`:
 - `Ellipsoid`: a sphere pushed through a shape function, with optional per-vertex `colouring` for materials with `VertexColorUseAsAlbedo`.

@@ -7,6 +7,8 @@ namespace IceAgeWorld;
 /// from it and F picks it up, if it's light enough: the cat drags it along in its jaws, slowed by the weight, and can
 /// climb a tree with it. Up on a branch or the treetop, F puts it down there, and E eats from it in peace, out of reach
 /// of anything on the ground, the way big cats cache their kills in trees. It can also eat straight from its jaws.
+/// The snow leopard, the arctic wolf and the bald eagle all hunt; the eagle can also snatch prey on the wing (see
+/// <see cref="Swoop"/>) and carry it off in its talons.
 /// </summary>
 public partial class Player
 {
@@ -21,6 +23,9 @@ public partial class Player
     /// outright, a wolf in a few bites, and a mammoth calf in several, while a grown mammoth is all but too big to take.
     /// </summary>
     [Export] public float BiteStrength { get; set; } = 10f;
+
+    /// <summary>How far a flying hunter's talons reach to snatch prey from below it.</summary>
+    [Export] public float TalonReach { get; set; } = 1.5f;
 
     /// <summary>How far beyond the mouth a hunter's pounce can reach its prey.</summary>
     [Export] public float PounceReach { get; set; } = 1.2f;
@@ -44,7 +49,7 @@ public partial class Player
     public bool IsCarrying => _carrying is not null;
 
     /// <summary>Where the mouth reaches to, just in front of the body.</summary>
-    private Vector3 Mouth => GlobalPosition - Animal.GlobalBasis.Z * Stats.MouthDistance;
+    private Vector3 Mouth => GlobalPosition - Animal.GlobalBasis.Z.Normalized() * Stats.MouthDistance;
 
     /// <summary>The carcass being eaten from, while a hunter feeds.</summary>
     private Animal? _carcass;
@@ -79,7 +84,7 @@ public partial class Player
             return;
         }
 
-        if (!upTree && Wildlife.PreyNear(Mouth, PounceReach) is { } prey)
+        if (!upTree && Wildlife.PreyNear(Mouth, PounceReach * Size) is { } prey)
         {
             Pounce(prey);
             return;
@@ -92,7 +97,16 @@ public partial class Player
         bool light = Wildlife.CanCarry(carcass, Stats.BodyRadius * Stats.BodyHeight * CarryStrength);
         Prompt(light ? $"E to eat the {name}, F to pick it up" : $"E to eat the {name} (too heavy to carry)", upTree);
         if (Input.IsActionJustPressed(InputSetup.Eat))
+        {
             EatFrom(carcass);
+
+            // A kill on the ground is shared: the pack crowds in to eat too. Up a tree, it's the cat's alone.
+            if (!upTree && _herds.TryGetValue(Animal, out var pack) && pack.Feast(carcass))
+            {
+                _message = $"Your pack eats the {name} with you";
+                _messageTime = 3f;
+            }
+        }
         else if (light && Input.IsActionJustPressed(InputSetup.Attack))
             _carrying = carcass;
     }
@@ -104,23 +118,44 @@ public partial class Player
     /// </summary>
     private void Pounce(Animal prey)
     {
-        ActionPrompt = IsExhausted ? "Too winded to pounce" : $"Press F or click to attack the {prey.DisplayName.ToLower()}";
-        if (IsExhausted || !Input.IsActionJustPressed(InputSetup.Attack))
+        string name = prey.DisplayName.ToLower();
+        bool grip = Stats.Can(Ability.Grip);
+        ActionPrompt = IsExhausted ? "Too winded to pounce"
+            : grip ? $"F or click to attack the {name}, G or right-click to leap on and hold it"
+            : $"Press F or click to attack the {name}";
+        if (IsExhausted)
+            return;
+        if (grip && Input.IsActionJustPressed(InputSetup.Grip))
+        {
+            StartGrip(prey);
+            return;
+        }
+        if (!Input.IsActionJustPressed(InputSetup.Attack))
             return;
 
         var toward = (prey.GlobalPosition - GlobalPosition) with { Y = 0f };
+        float gap = toward.Length() - prey.Stats.BodyRadius * Wildlife!.SizeOf(prey) - Stats.BodyRadius * 0.5f;
         if (toward.LengthSquared() > 0.0001f)
         {
             toward = toward.Normalized();
             Animal.Rotation = new Vector3(0, Yaw(toward), 0);
         }
-        _lunge = toward * Stats.JumpBoost;
+        // Spring only as far as the prey, so the hunter lands on it rather than sailing past something small like a
+        // hare. A spring carries the body about as many metres as its speed in metres a second.
+        _lunge = toward * Mathf.Clamp(gap, 0f, Stats.JumpBoost);
         _pounce = PounceSeconds;
         Stamina = Mathf.Max(0f, Stamina - PounceStamina);
         if (Stamina <= 0f)
             IsExhausted = true;
 
-        Wildlife!.Bite(prey, BiteStrength, GlobalPosition);
+        // A cub bites with a cub's jaws: bite strength goes with bulk, so a newborn takes a few bites to kill an otter and a dozen or more for a wolf.
+        // Unless the bite finished it, the leader's pack piles in to help.
+        if (!Wildlife!.Bite(prey, BiteStrength * Stats.Strength * Size * Size, GlobalPosition)
+            && _herds.TryGetValue(Animal, out var pack) && pack.Attack(prey))
+        {
+            _message = $"Your pack joins the attack on the {prey.DisplayName.ToLower()}!";
+            _messageTime = 3f;
+        }
     }
 
     /// <summary>With a kill in its jaws, the hunter can eat from it where it stands, or put it down: up a tree it stays put there.</summary>
@@ -155,18 +190,57 @@ public partial class Player
         _carrying = null;
     }
 
-    /// <summary>Keeps a carried kill in the jaws, wherever the hunter has got to this frame.</summary>
+    /// <summary>
+    /// A bird of prey in flight strikes with its talons: skimming low over a wild animal, F snatches at it. A small one
+    /// dies in the grip and, if it's light enough, is carried off in the talons, to be eaten once the bird lands. This
+    /// is how eagles take hares, swooping in low and fast from behind.
+    /// </summary>
+    private void Swoop()
+    {
+        if (Wildlife is null)
+            return;
+
+        if (_carrying is { } held)
+        {
+            ActionPrompt = $"Land to eat the {held.DisplayName.ToLower()}, F to let go";
+            if (Input.IsActionJustPressed(InputSetup.Attack))
+            {
+                Wildlife.Drop(held);
+                _carrying = null;
+            }
+            return;
+        }
+
+        // The talons reach down below the body as the bird swings its feet forward to strike.
+        var talons = GlobalPosition + Vector3.Down * TalonReach * 0.5f * Size;
+        if (Wildlife.PreyNear(talons, TalonReach * Size) is not { } prey)
+            return;
+
+        ActionPrompt = $"Press F or click to snatch the {prey.DisplayName.ToLower()}";
+        if (!Input.IsActionJustPressed(InputSetup.Attack))
+            return;
+
+        // Talons driven home at the speed of a stoop strike harder than any bite.
+        bool killed = Wildlife.Bite(prey, BiteStrength * 2f * Size * Size, GlobalPosition);
+        if (killed && Wildlife.CanCarry(prey, Stats.BodyRadius * Stats.BodyHeight * CarryStrength))
+            _carrying = prey;
+    }
+
+    /// <summary>Keeps a carried kill in the jaws, or a flying bird's talons, wherever the hunter has got to this frame.</summary>
     private void HoldKill()
     {
         if (_carrying is null || Wildlife is null)
             return;
-        var jaws = Animal.GlobalTransform * new Vector3(0f, Stats.BodyHeight * 0.5f, -Stats.MouthDistance);
-        Wildlife.Hold(_carrying, jaws, Animal.GlobalRotation.Y);
+        var grip = Animal.IsFlying
+            ? GlobalPosition
+            : GlobalPosition + Animal.GlobalBasis.Orthonormalized() * new Vector3(0f, Stats.BodyHeight * 0.5f, -Stats.MouthDistance);
+        Wildlife.Hold(_carrying, grip, Animal.GlobalRotation.Y);
     }
 
     /// <summary>Drops whatever the hunter has in its jaws and ends any pounce, e.g. when switching animal or respawning.</summary>
     private void StopHunting()
     {
+        LetGo();
         if (_carrying is not null)
             Wildlife?.Drop(_carrying);
         _carrying = null;

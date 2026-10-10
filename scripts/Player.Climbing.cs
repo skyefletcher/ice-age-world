@@ -56,7 +56,7 @@ public partial class Player
     {
         if (Terrain is null || IsExhausted || IsFeeding)
             return false;
-        if (Terrain.NearestTree(GlobalPosition, Terrain.TrunkCollisionRadius + Stats.BodyRadius + ClimbReach) is not { } tree)
+        if (Terrain.TrunkNear(GlobalPosition, Stats.BodyRadius + ClimbReach) is not { } tree)
             return false;
 
         var toTrunk = (tree.Transform.Origin - GlobalPosition) with { Y = 0f };
@@ -306,7 +306,7 @@ public partial class Player
         // Start clear of the trunk's solid column so the body doesn't snag on it on the way down.
         var axis = _tree.AxisAt(_climbHeight);
         var from = new Vector3(GlobalPosition.X, 0f, GlobalPosition.Z) - new Vector3(axis.X, 0f, axis.Z);
-        float clear = Terrain.TrunkCollisionRadius + Stats.BodyRadius + 0.05f;
+        float clear = _tree.CollisionRadius + Stats.BodyRadius + 0.05f;
         if (from.Length() < clear)
             GlobalPosition = new Vector3(axis.X, GlobalPosition.Y, axis.Z) + direction * clear;
 
@@ -336,7 +336,7 @@ public partial class Player
     /// <summary>Back on the ground at the foot of the trunk, facing away from it.</summary>
     private void StepOffBottom(Vector3 outward)
     {
-        var foot = _tree.Transform.Origin + outward * (Terrain.TrunkCollisionRadius + Stats.BodyRadius + 0.05f);
+        var foot = _tree.Transform.Origin + outward * (_tree.CollisionRadius + Stats.BodyRadius + 0.05f);
         float ground = Terrain?.GetHeight(foot.X, foot.Z) ?? foot.Y;
         GlobalPosition = new Vector3(foot.X, ground + 0.05f, foot.Z);
         _mode = Mode.Ground;

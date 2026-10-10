@@ -4,8 +4,11 @@ using Godot;
 
 namespace IceAgeWorld;
 
-/// <summary>A round lake carved into the terrain. <see cref="Radius"/> is where the water meets the shore.</summary>
-public readonly record struct Lake(Vector2 Centre, float Radius, float Surface);
+/// <summary>
+/// A round lake carved into the terrain. <see cref="Radius"/> is where the water meets the shore, and <see cref="Shore"/>
+/// how wide the bank is that slopes back up to the land around it.
+/// </summary>
+public readonly record struct Lake(Vector2 Centre, float Radius, float Surface, float Shore = Terrain.ShoreWidth);
 
 /// <summary>
 /// A placed tree, for animals that climb: where its trunk runs, where its branches reach and where its top is.
@@ -57,6 +60,9 @@ public readonly record struct Tree(Transform3D Transform, TreeBuilder.Shape Shap
 
     /// <summary>The very top of the tree, where a climber stands to look out over the forest.</summary>
     public Vector3 Summit => Transform * (Vector3.Up * TopHeight);
+
+    /// <summary>Radius of the solid column round the foot of the trunk that stops animals walking through it.</summary>
+    public float CollisionRadius => RadiusAt(0f) * 1.1f;
 }
 
 /// <summary>
@@ -65,22 +71,41 @@ public readonly record struct Tree(Transform3D Transform, TreeBuilder.Shape Shap
 /// </summary>
 public partial class Terrain : Node3D
 {
-    /// <summary>Vertices along each side of the heightmap.</summary>
-    [Export] public int Resolution { get; set; } = 257;
+    /// <summary>Vertices along each side of the heightmap: 513 at 2 m apart makes a world just over a kilometre across.</summary>
+    [Export] public int Resolution { get; set; } = 513;
 
     /// <summary>World units between neighbouring vertices.</summary>
     [Export] public float CellSize { get; set; } = 2f;
 
     [Export] public float HeightScale { get; set; } = 28f;
     [Export] public int Seed { get; set; } = 1234;
-    [Export] public int TreeCount { get; set; } = 400;
+    [Export] public int TreeCount { get; set; } = 1600;
     [Export] public int LakeCount { get; set; } = 6;
+
+    /// <summary>
+    /// Radius of the one big lake that fills the north-east corner of the world, big enough to swim a long way out into,
+    /// with a wide, gentle shore so it lies in a broad basin rather than a pit.
+    /// </summary>
+    [Export] public float BigLakeRadius { get; set; } = 100f;
+
+    [Export] public float BigLakeShore { get; set; } = 20f;
 
     /// <summary>Depth of water at the centre of each lake.</summary>
     [Export] public float LakeDepth { get; set; } = 5f;
 
     /// <summary>Width of the sloping bank between a lake's water line and the surrounding land.</summary>
     public const float ShoreWidth = 6f;
+
+    /// <summary>How deep the wall of mountains round the edge of the world is, however big the world.</summary>
+    public const float MountainWidth = 38f;
+
+    /// <summary>Width of the square tiles of forest that are drawn, or skipped, together.</summary>
+    private const float TreeTileSize = 96f;
+
+    /// <summary>
+    /// How far off a tile of trees is still drawn. By then the fog has all but swallowed them, so the pop is hard to see.
+    /// </summary>
+    private const float TreeViewDistance = 450f;
 
     /// <summary>Distinct shapes generated for each kind of tree; each placed tree is one of these, further varied.</summary>
     [Export] public int VariantsPerKind { get; set; } = 3;
@@ -94,8 +119,14 @@ public partial class Terrain : Node3D
     private readonly List<Lake> _lakes = [];
     private readonly List<Tree> _trees = [];
 
-    /// <summary>Radius of the solid column round each trunk that stops animals walking through trees.</summary>
-    public const float TrunkCollisionRadius = 0.6f;
+    /// <summary>Radius of the thickest trunk in the forest, so trunk searches can skip far-off trees quickly.</summary>
+    private float _thickestTrunk;
+
+    /// <summary>
+    /// How big the trees grow, on top of each tree's own variation. At 2, the old-growth taiga's spruces tower 25 to 45
+    /// metres, as the biggest real ones do, with trunks a metre and more across at the foot.
+    /// </summary>
+    [Export] public float TreeScale { get; set; } = 2f;
 
     /// <summary>Distance from the centre of the map to its edge.</summary>
     public float HalfSize => (Resolution - 1) * CellSize / 2f;
@@ -116,6 +147,31 @@ public partial class Terrain : Node3D
             if (distance < best)
             {
                 best = distance;
+                nearest = tree;
+            }
+        }
+        return nearest;
+    }
+
+    /// <summary>
+    /// The tree whose trunk comes within <paramref name="clearance"/> of a point (ignoring height), the closest if
+    /// several do: e.g. one an animal of that radius would bump into.
+    /// </summary>
+    public Tree? TrunkNear(Vector3 point, float clearance)
+    {
+        Tree? nearest = null;
+        float best = clearance;
+        float within = clearance + _thickestTrunk;
+        foreach (var tree in _trees)
+        {
+            // Most trees are nowhere near: rule them out cheaply before working out how thick this one is.
+            var offset = tree.Transform.Origin - point;
+            if (Mathf.Abs(offset.X) > within || Mathf.Abs(offset.Z) > within)
+                continue;
+            float gap = new Vector2(offset.X, offset.Z).Length() - tree.CollisionRadius;
+            if (gap < best)
+            {
+                best = gap;
                 nearest = tree;
             }
         }
@@ -199,9 +255,9 @@ public partial class Terrain : Node3D
             h *= Mathf.Lerp(0.3f, 1f, Mathf.SmoothStep(0f, 60f, fromCentre));
 
             // Steep mountains near the edge form a natural world boundary.
-            float edge = Mathf.Max(Mathf.Abs(wx), Mathf.Abs(wz)) / HalfSize;
-            if (edge > 0.85f)
-                h += Mathf.Pow((edge - 0.85f) / 0.15f, 2f) * 50f;
+            float toEdge = HalfSize - Mathf.Max(Mathf.Abs(wx), Mathf.Abs(wz));
+            if (toEdge < MountainWidth)
+                h += Mathf.Pow(1f - toEdge / MountainWidth, 2f) * 50f;
 
             _heights[z * Resolution + x] = h;
         }
@@ -214,11 +270,19 @@ public partial class Terrain : Node3D
         var rng = new RandomNumberGenerator { Seed = (ulong)Seed + 1 };
         _lakes.Clear();
 
-        for (int attempt = 0; _lakes.Count < LakeCount && attempt < 500; attempt++)
+        // The big lake goes in first, filling the north-east corner just inside the mountains, so the small ones keep clear of it.
+        float corner = HalfSize - MountainWidth - BigLakeRadius - BigLakeShore;
+        var bigCentre = new Vector2(corner, -corner);
+        var big = new Lake(bigCentre, BigLakeRadius, WaterLine(bigCentre, BigLakeRadius, BigLakeShore), BigLakeShore);
+        _lakes.Add(big);
+        Carve(big);
+
+        int placed = 0;
+        for (int attempt = 0; placed < LakeCount && attempt < 500; attempt++)
         {
             float radius = rng.RandfRange(14f, 24f);
             // The first lake goes near the spawn point so there's always water close by.
-            float distance = _lakes.Count == 0 ? radius + 30f : rng.RandfRange(60f, HalfSize * 0.7f);
+            float distance = placed == 0 ? radius + 30f : rng.RandfRange(60f, HalfSize - MountainWidth - radius - ShoreWidth);
             float angle = rng.Randf() * Mathf.Tau;
             var centre = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * distance;
 
@@ -227,29 +291,42 @@ public partial class Terrain : Node3D
 
             bool overlaps = false;
             foreach (var other in _lakes)
-                overlaps |= centre.DistanceTo(other.Centre) < radius + other.Radius + ShoreWidth * 2f;
+                overlaps |= centre.DistanceTo(other.Centre) < radius + other.Radius + ShoreWidth + other.Shore;
             if (overlaps)
                 continue;
 
-            // Set the water just below the lowest point of the surrounding bank, so the lake never spills.
-            float surface = float.MaxValue;
-            foreach (float ring in new[] { radius, radius + ShoreWidth * 0.5f, radius + ShoreWidth })
-            for (int k = 0; k < 32; k++)
-            {
-                float a = k * Mathf.Tau / 32f;
-                surface = Mathf.Min(surface, GetHeight(centre.X + Mathf.Cos(a) * ring, centre.Y + Mathf.Sin(a) * ring));
-            }
-
-            var lake = new Lake(centre, radius, surface - 0.4f);
+            var lake = new Lake(centre, radius, WaterLine(centre, radius, ShoreWidth));
             _lakes.Add(lake);
             Carve(lake);
+            placed++;
         }
+
+        // The lake by the spawn point comes first, and the big lake second, so the otter rafts live on those two.
+        _lakes.RemoveAt(0);
+        _lakes.Insert(Mathf.Min(1, _lakes.Count), big);
+    }
+
+    /// <summary>
+    /// Where to set a lake's water: just below the lowest point of the bank round it, so it never spills. A big lake
+    /// is checked at more points round its rim, so no dip in its bank is missed.
+    /// </summary>
+    private float WaterLine(Vector2 centre, float radius, float shore)
+    {
+        float lowest = float.MaxValue;
+        int samples = Mathf.Max(32, Mathf.CeilToInt((radius + shore) * 0.8f));
+        foreach (float ring in new[] { radius, radius + shore * 0.5f, radius + shore })
+        for (int k = 0; k < samples; k++)
+        {
+            float a = k * Mathf.Tau / samples;
+            lowest = Mathf.Min(lowest, GetHeight(centre.X + Mathf.Cos(a) * ring, centre.Y + Mathf.Sin(a) * ring));
+        }
+        return lowest - 0.4f;
     }
 
     /// <summary>Digs a bowl below the water line and blends a sloping bank back up to the original ground.</summary>
     private void Carve(Lake lake)
     {
-        float reach = lake.Radius + ShoreWidth;
+        float reach = lake.Radius + lake.Shore;
         int minX = Mathf.Max(0, Mathf.FloorToInt((lake.Centre.X - reach + HalfSize) / CellSize));
         int maxX = Mathf.Min(Resolution - 1, Mathf.CeilToInt((lake.Centre.X + reach + HalfSize) / CellSize));
         int minZ = Mathf.Max(0, Mathf.FloorToInt((lake.Centre.Y - reach + HalfSize) / CellSize));
@@ -377,17 +454,15 @@ public partial class Terrain : Node3D
         var kinds = Enum.GetValues<TreeKind>();
         int variantCount = kinds.Length * VariantsPerKind;
         var variants = new TreeBuilder.Shape[variantCount];
-        var placements = new List<(Transform3D Transform, Color Tint)>[variantCount];
+        // Trees are drawn a tile of forest at a time, so tiles out of view or far off in the fog are skipped.
+        var placements = new Dictionary<(int Variant, Vector2I Tile), List<(Transform3D Transform, Color Tint)>>();
         for (int v = 0; v < variantCount; v++)
         {
             variants[v] = TreeBuilder.Build(kinds[v / VariantsPerKind], rng, material);
-            placements[v] = [];
         }
 
-        // Trunks are solid so animals can't walk through trees.
-        var trunkShape = new CylinderShape3D { Radius = TrunkCollisionRadius, Height = 6f };
         var bodies = new StaticBody3D { Name = "TreeBodies" };
-        float range = HalfSize * 0.85f;
+        float range = HalfSize - MountainWidth;
         int placed = 0;
 
         for (int attempt = 0; placed < TreeCount && attempt < TreeCount * 40; attempt++)
@@ -406,7 +481,7 @@ public partial class Terrain : Node3D
                 continue;
 
             // Each tree gets its own height, girth, slight lean and brightness on top of its base shape.
-            float height = rng.RandfRange(0.75f, 1.3f);
+            float height = rng.RandfRange(0.75f, 1.3f) * TreeScale;
             float width = height * rng.RandfRange(0.85f, 1.15f);
             float leanDirection = rng.Randf() * Mathf.Tau;
             var leanAxis = new Vector3(Mathf.Cos(leanDirection), 0f, Mathf.Sin(leanDirection));
@@ -423,23 +498,33 @@ public partial class Terrain : Node3D
             int variant = kind * VariantsPerKind + rng.RandiRange(0, VariantsPerKind - 1);
 
             var transform = new Transform3D(basis, new Vector3(x, h - 0.2f, z));
-            placements[variant].Add((transform, new Color(brightness, brightness, brightness)));
-            _trees.Add(new Tree(transform, variants[variant]));
-            bodies.AddChild(new CollisionShape3D { Shape = trunkShape, Position = new Vector3(x, h + 3f, z) });
+            var tile = new Vector2I(Mathf.FloorToInt(x / TreeTileSize), Mathf.FloorToInt(z / TreeTileSize));
+            if (!placements.TryGetValue((variant, tile), out var inTile))
+                placements[(variant, tile)] = inTile = [];
+            inTile.Add((transform, new Color(brightness, brightness, brightness)));
+            var tree = new Tree(transform, variants[variant]);
+            _trees.Add(tree);
+            _thickestTrunk = Mathf.Max(_thickestTrunk, tree.CollisionRadius);
+
+            // Trunks are solid so animals can't walk through trees, each as thick as its own trunk.
+            var trunk = new CylinderShape3D { Radius = tree.CollisionRadius, Height = 8f * height };
+            bodies.AddChild(new CollisionShape3D { Shape = trunk, Position = new Vector3(x, h + 4f * height, z) });
             placed++;
         }
 
         AddChild(bodies);
-        for (int v = 0; v < variantCount; v++)
-            AddTreeVariant(variants[v].Mesh, placements[v]);
+        foreach (var ((variant, tile), instances) in placements)
+            AddTreeTile(variants[variant].Mesh, tile, instances);
     }
 
-    /// <summary>Draws every tree that shares one base shape in a single draw call using a MultiMesh.</summary>
-    private void AddTreeVariant(Mesh mesh, List<(Transform3D Transform, Color Tint)> instances)
+    /// <summary>
+    /// Draws every tree in one tile of forest that shares one base shape in a single draw call using a MultiMesh,
+    /// hidden once the tile is so far off it would be lost in the fog anyway.
+    /// </summary>
+    private void AddTreeTile(Mesh mesh, Vector2I tile, List<(Transform3D Transform, Color Tint)> instances)
     {
-        if (instances.Count == 0)
-            return;
-
+        // Place the tile at its middle, so the view distance is measured from there rather than the world's centre.
+        var centre = new Vector3((tile.X + 0.5f) * TreeTileSize, 0f, (tile.Y + 0.5f) * TreeTileSize);
         var multiMesh = new MultiMesh
         {
             TransformFormat = MultiMesh.TransformFormatEnum.Transform3D,
@@ -450,10 +535,10 @@ public partial class Terrain : Node3D
 
         for (int i = 0; i < instances.Count; i++)
         {
-            multiMesh.SetInstanceTransform(i, instances[i].Transform);
+            multiMesh.SetInstanceTransform(i, instances[i].Transform.Translated(-centre));
             multiMesh.SetInstanceColor(i, instances[i].Tint);
         }
 
-        AddChild(new MultiMeshInstance3D { Multimesh = multiMesh });
+        AddChild(new MultiMeshInstance3D { Multimesh = multiMesh, Position = centre, VisibilityRangeEnd = TreeViewDistance });
     }
 }

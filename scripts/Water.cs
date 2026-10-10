@@ -23,7 +23,7 @@ public partial class Water : Node3D
         foreach (var lake in _lakes)
         {
             // The disc reaches part-way up the bank, so its edge is always hidden under the shore.
-            float radius = lake.Radius + Terrain.ShoreWidth * 0.6f;
+            float radius = lake.Radius + lake.Shore * 0.6f;
             AddChild(new MeshInstance3D
             {
                 Mesh = new CylinderMesh

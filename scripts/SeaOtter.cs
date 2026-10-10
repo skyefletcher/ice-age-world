@@ -51,6 +51,7 @@ public partial class SeaOtter : Animal
     private float _onBack;
 
     public override string DisplayName => "Sea otter";
+    public override string YoungName => "Sea otter pup";
 
     public override AnimalStats Stats { get; } = new()
     {

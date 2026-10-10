@@ -43,6 +43,9 @@ public enum Ability
 
     /// <summary>Stalks, attacks and kills wild animals, and eats from their carcasses.</summary>
     Hunt = 16,
+
+    /// <summary>Leaps onto prey and clamps its jaws on, holding on and doing far more damage than a bite.</summary>
+    Grip = 32,
 }
 
 /// <summary>How an animal is resting, if at all.</summary>
@@ -55,6 +58,17 @@ public sealed record AnimalStats
 
     public Ability Abilities { get; init; }
 
+    /// <summary>
+    /// How big the player's animal grows compared with others of its kind. A pack's leading wolf is the biggest and
+    /// strongest in it, so the player's wolf, at the head of its own pack, outgrows the rest.
+    /// </summary>
+    public float LeaderSize { get; init; } = 1f;
+
+    /// <summary>
+    /// How hard a hunter bites, compared with a snow leopard: a bear's jaws and the weight behind them do far more harm.
+    /// </summary>
+    public float Strength { get; init; } = 1f;
+
     /// <summary>How many computer-controlled animals of the same kind travel with the player's pack or herd.</summary>
     public int Companions { get; init; }
 
@@ -63,15 +77,46 @@ public sealed record AnimalStats
 
     // Top speed: a 9 (the snow leopard) sprints at about 15 m/s and a 6 (the mammoth) at about 10 m/s, close to
     // the real animals' bursts; a walk is a comfortable fraction of that.
-    public float SprintSpeed => Scores.LandSpeed * 1.7f;
+    public float SprintSpeed => Scores.LandSpeed * 1.7f * Pace;
     public float WalkSpeed => SprintSpeed * 0.4f;
-    public float SwimSpeed => 0.5f + Scores.WaterSpeed * 0.8f;
+    public float SwimSpeed => (0.5f + Scores.WaterSpeed * 0.8f) * Pace;
 
     /// <summary>How high a standing jump clears, in metres: about 2.5 m for a 10, and barely a hop for a 1.</summary>
-    public float JumpHeight => 0.2f + Scores.JumpHeight * 0.23f;
+    public float JumpHeight => (0.2f + Scores.JumpHeight * 0.23f) * Pace;
 
     /// <summary>Extra forward speed a running jump launches with, so long jumpers carry further.</summary>
-    public float JumpBoost => Scores.JumpLength * 0.45f;
+    public float JumpBoost => Scores.JumpLength * 0.45f * Pace;
+
+    /// <summary>
+    /// How fast and far a youngster runs, swims, flies and jumps compared with a grown animal: 1 once grown up. Short
+    /// legs and growing muscles keep a calf or cub well behind its mother, though it is just as nimble.
+    /// </summary>
+    public float Pace { get; init; } = 1f;
+
+    /// <summary>
+    /// The same animal at <paramref name="size"/> times its usual grown size: a youngster under 1, or an outsized
+    /// leader over it. Its body, reach and camera scale with it. A youngster also moves at a slower
+    /// <see cref="Pace"/>, halfway to a grown animal's at birth; a big leader is no faster for its size.
+    /// </summary>
+    public AnimalStats GrownTo(float size)
+    {
+        if (size == 1f)
+            return this;
+        float pace = size < 1f ? 0.5f + 0.5f * size : 1f;
+        return this with
+        {
+            Pace = pace,
+            FlySpeed = FlySpeed * pace,
+            FloatDepth = FloatDepth * size,
+            WadeDepth = WadeDepth * size,
+            MouthDistance = MouthDistance * size,
+            EatReach = EatReach * size,
+            BodyRadius = BodyRadius * size,
+            BodyHeight = BodyHeight * size,
+            CameraHeight = CameraHeight * size,
+            CameraDistance = CameraDistance * size,
+        };
+    }
 
     /// <summary>How quickly the body swings round to face a new heading.</summary>
     public float TurnSpeed => TurnSpeedFor(Scores.Agility);
@@ -138,6 +183,27 @@ public abstract partial class Animal : Node3D
     /// hard the animal is walking, and <paramref name="eat"/> is 0..1 how far the head is dipped to eat or drink.
     /// </summary>
     public abstract void Animate(float speed, float stride, float eat, float dt);
+
+    /// <summary>Name shown on the HUD while the player's animal is still growing up, e.g. "Snow leopard cub".</summary>
+    public abstract string YoungName { get; }
+
+    /// <summary>
+    /// How grown the player's animal is, as a fraction of its full size: the whole model scales with it, on top of any
+    /// scale the model gives itself when it is built.
+    /// </summary>
+    public float Growth
+    {
+        get => _growth;
+        set
+        {
+            _grownScale ??= Scale;
+            _growth = value;
+            Scale = _grownScale.Value * value;
+        }
+    }
+
+    private float _growth = 1f;
+    private Vector3? _grownScale;
 
     // What the animal is doing besides walking, set before each Animate so the model can take the right pose.
     public bool IsSwimming { get; set; }

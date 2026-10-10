@@ -61,11 +61,12 @@ public partial class BaldEagle : Animal
     private float _fold = 1f;
 
     public override string DisplayName => "Bald eagle";
+    public override string YoungName => "Bald eaglet";
 
     public override AnimalStats Stats { get; } = new()
     {
         Scores = new() { JumpHeight = 2, JumpLength = 2, LandSpeed = 3, WaterSpeed = 3, Agility = 2, Stamina = 9, FlightAgility = 10 },
-        Abilities = Ability.Fly,
+        Abilities = Ability.Fly | Ability.Hunt,
         FlySpeed = 16f,
         FloatDepth = 0.15f,
         WadeDepth = 0.12f,

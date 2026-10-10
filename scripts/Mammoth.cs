@@ -43,6 +43,7 @@ public partial class Mammoth : Animal
     private float _time;
 
     public override string DisplayName => "Woolly mammoth";
+    public override string YoungName => "Woolly mammoth calf";
 
     public override AnimalStats Stats { get; } = new()
     {

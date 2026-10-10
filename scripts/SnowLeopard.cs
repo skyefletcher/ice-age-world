@@ -96,11 +96,12 @@ public partial class SnowLeopard : Animal
     private float _time;
 
     public override string DisplayName => "Snow leopard";
+    public override string YoungName => "Snow leopard cub";
 
     public override AnimalStats Stats { get; } = new()
     {
         Scores = new() { JumpHeight = 10, JumpLength = 10, LandSpeed = 9, WaterSpeed = 3, Agility = 10, Stamina = 7 },
-        Abilities = Ability.ClimbTrees | Ability.Hunt,
+        Abilities = Ability.ClimbTrees | Ability.Hunt | Ability.Grip,
         FloatDepth = 0.4f * BodyScale,
         WadeDepth = 0.25f * BodyScale,
         MouthDistance = 0.7f * BodyScale,

@@ -88,11 +88,13 @@ public partial class ArcticWolf : Animal
     private float _time;
 
     public override string DisplayName => "Arctic wolf";
+    public override string YoungName => "Arctic wolf pup";
 
     public override AnimalStats Stats { get; } = new()
     {
         Scores = new() { JumpHeight = 6, JumpLength = 6, LandSpeed = 7, WaterSpeed = 4, Agility = 7, Stamina = 8 },
-        Abilities = Ability.Pack,
+        Abilities = Ability.Pack | Ability.Hunt,
+        LeaderSize = 1.25f,
         Companions = 3,
         FloatDepth = 0.55f,
         WadeDepth = 0.3f,
