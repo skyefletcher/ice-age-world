@@ -4,7 +4,8 @@ namespace IceAgeWorld;
 
 /// <summary>
 /// On-screen display: the current animal's name and how grown it is, the health, hunger, thirst and stamina bars, the
-/// "Press E to ..." prompt, a warning while wolves are hunting the player, and, once it has died, the choice to be reborn.
+/// "Press E to ..." prompt, a warning while wolves are hunting the player, the map (see <see cref="WorldMap"/>), and, once
+/// it has died, the choice to be reborn.
 /// </summary>
 public partial class Hud : CanvasLayer
 {
@@ -27,6 +28,7 @@ public partial class Hud : CanvasLayer
     private Control _rebirth = null!;
     private Label _rebirthTitle = null!;
     private float _deadFor;
+    private WorldMap _map = null!;
 
     public override void _Ready()
     {
@@ -36,12 +38,15 @@ public partial class Hud : CanvasLayer
         _staminaBar = GetNode<ProgressBar>("Needs/Stamina/Bar");
         _actionPrompt = GetNode<Label>("ActionPrompt");
         _animalName = GetNode<Label>("Needs/AnimalName");
+        _map = new WorldMap { Name = "Map" };
+        AddChild(_map);
     }
 
     public override void _Process(double delta)
     {
         if (Player is null)
             return;
+        _map.Player = Player;
 
         // A youngster shows how far it has grown, e.g. "Snow leopard cub (40% grown)".
         _animalName.Text = Player.IsGrownUp
@@ -57,6 +62,8 @@ public partial class Hud : CanvasLayer
         // Anything the animal can do comes first, then any news; otherwise warn it when the polar bear or the wolves
         // are after it.
         string? prompt = Player.ActionPrompt ?? Player.Message;
+        if (Player.Courtship is { } courtship)
+            prompt = prompt is null ? courtship : courtship + "\n" + prompt;
         bool climber = Player.Animal.Stats.Can(Ability.ClimbTrees);
         if (prompt is null && !Player.IsDead && Player.Wildlife?.BearHuntingPlayer == true)
             prompt = climber ? "The polar bear is after you! Climb a tree!" : "The polar bear is after you! Run!";

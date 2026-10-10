@@ -40,13 +40,25 @@ public partial class Player
     /// A wolf bites the animal, taking <paramref name="damage"/> from one the size of a wolf. A big animal shrugs off
     /// more, so a grown mammoth holds out a long while but an otter or eagle very little, and a youngster less again.
     /// </summary>
-    public void Bitten(float damage)
+    public void Bitten(float damage, Animal? by = null)
     {
         if (IsDead)
             return;
 
         float toughness = Mathf.Max(0.75f, Mathf.Sqrt(Stats.BodyRadius * Stats.BodyHeight / 0.3f));
-        Health = Mathf.Max(0f, Health - damage / toughness);
+        Hurt(damage / toughness);
+
+        // The player's pack or family turns on whatever is biting it, however big a pack or bear it is.
+        if (by is not null && !IsDead && _herds.TryGetValue(Animal, out var family) && family.Attack(by))
+            Announce($"Your {family.Word} turns on the {by.DisplayName.ToLower()} to save you!", 3f);
+    }
+
+    /// <summary>Takes <paramref name="damage"/> straight off the animal's health, e.g. from a bite or a bad fall.</summary>
+    private void Hurt(float damage)
+    {
+        if (IsDead)
+            return;
+        Health = Mathf.Max(0f, Health - damage);
         _sinceBitten = 0f;
         if (IsDead)
             Die();
@@ -66,7 +78,11 @@ public partial class Player
     private void Die()
     {
         LeaveTree();
+        // Dead, it doesn't spring away from the tree: it just drops.
+        Velocity = Velocity with { Y = Mathf.Min(Velocity.Y, 0f) };
         StopHunting();
+        _courtship = 0f;
+        Courtship = null;
         _mode = Mode.Ground;
         Animal.IsFlying = Animal.IsClimbing = false;
         _feeding = Feeding.None;
@@ -83,7 +99,7 @@ public partial class Player
         if (afloat)
             velocity.Y = (surface!.Value - Stats.FloatDepth - GlobalPosition.Y) * 3f;
         else if (!IsOnFloor())
-            velocity.Y -= _gravity * dt;
+            velocity.Y -= Animal.GravityOn(velocity.Y) * dt;
         Velocity = velocity;
         MoveAndSlide();
 

@@ -42,6 +42,8 @@ public partial class Player
         Wildlife!.Grip(prey, true);
         if (Wildlife.Bite(prey, BiteStrength * GripLandingBite * Size * Size, GlobalPosition))
             LetGo();
+        else if (_herds.TryGetValue(Animal, out var family) && family.Attack(prey))
+            Announce($"Your {family.Word} joins the attack on the {prey.DisplayName.ToLower()}!", 3f);
     }
 
     /// <summary>

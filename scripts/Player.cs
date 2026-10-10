@@ -70,6 +70,13 @@ public partial class Player : CharacterBody3D
     private string? _message;
     private float _messageTime;
 
+    /// <summary>Shows a short piece of news for <paramref name="seconds"/>.</summary>
+    public void Announce(string message, float seconds = 5f)
+    {
+        _message = message;
+        _messageTime = seconds;
+    }
+
     /// <summary>
     /// A wild animal the player killed is reborn into the player's own pack or herd of that kind, if it has one, e.g. a
     /// wolf beaten in a fight joining the pack that beat it.
@@ -81,11 +88,13 @@ public partial class Player : CharacterBody3D
             if (animal.GetType() != fallen.GetType())
                 continue;
             herd.Recruit();
-            _message = $"The {fallen.DisplayName.ToLower()} you beat is reborn: a pup in your pack, and one in its own!";
-            _messageTime = 6f;
+            Announce($"The {fallen.DisplayName.ToLower()} you beat is reborn: a pup in your pack, and one in its own!", 6f);
             return;
         }
     }
+
+    /// <summary>Where the animals travelling with the player's current animal are: its pack, herd or family.</summary>
+    public IEnumerable<Vector3> Companions => _herds.TryGetValue(Animal, out var herd) ? herd.Positions : [];
 
     public bool IsFeeding => _feeding != Feeding.None;
     public bool IsSwimming { get; private set; }
@@ -99,8 +108,6 @@ public partial class Player : CharacterBody3D
     private enum Feeding { None, Eating, Drinking }
 
     private enum Mode { Ground, Flying, Climbing, Treetop, Branch }
-
-    private readonly float _gravity = ProjectSettings.GetSetting("physics/3d/default_gravity").AsSingle();
 
     private Animal[] _animals = [];
     private readonly Dictionary<Animal, Herd> _herds = [];
@@ -145,7 +152,8 @@ public partial class Player : CharacterBody3D
             AddChild(animal);
 
             // Pack and herd animals come with companions of their own kind, who only show while the player is one of them.
-            if (animal.Stats.Companions > 0)
+            // A snow leopard lives alone until it finds a mate (see Player.Family.cs), so its family starts empty.
+            if (animal.Stats.Companions > 0 || animal is SnowLeopard)
             {
                 var kind = animal.GetType();
                 var herd = new Herd
@@ -153,6 +161,7 @@ public partial class Player : CharacterBody3D
                     Leader = this,
                     Breed = () => (Animal)Activator.CreateInstance(kind)!,
                     Count = animal.Stats.Companions,
+                    IsFamily = animal is SnowLeopard,
                     Name = animal.Name + "Herd",
                     Visible = false,
                 };
@@ -168,7 +177,7 @@ public partial class Player : CharacterBody3D
     {
         float yaw = Animal.Rotation.Y;
         LeaveTree();
-        Animal.Landing = 0f;
+        StopFalling();
         Animal.Visible = false;
         if (_herds.TryGetValue(Animal, out var oldHerd))
             oldHerd.Visible = false;
@@ -184,7 +193,7 @@ public partial class Player : CharacterBody3D
         _mode = Mode.Ground;
         Animal.Visible = true;
         Animal.IsFlying = Animal.IsClimbing = Animal.IsSwimming = false;
-        _fromTree = false;
+        StopFalling();
         Posture = Posture.Standing;
         Animal.Sitting = Animal.Lying = 0f;
 
@@ -209,8 +218,7 @@ public partial class Player : CharacterBody3D
     {
         _mode = Mode.Ground;
         Animal.IsFlying = Animal.IsClimbing = false;
-        _fromTree = false;
-        Animal.Landing = 0f;
+        StopFalling();
         Posture = Posture.Standing;
         Animal.Sitting = Animal.Lying = 0f;
         Animal.Rotation = new Vector3(0, Animal.Rotation.Y, 0);
@@ -263,6 +271,7 @@ public partial class Player : CharacterBody3D
         }
         Grow(dt);
         Heal(dt);
+        Court(dt);
 
         // Movement is relative to where the camera is facing, flattened onto the ground plane.
         var input = Input.GetVector(InputSetup.MoveLeft, InputSetup.MoveRight, InputSetup.MoveForward, InputSetup.MoveBack);
@@ -339,13 +348,13 @@ public partial class Player : CharacterBody3D
         }
         else if (!IsOnFloor())
         {
-            velocity.Y -= _gravity * dt;
+            velocity.Y -= Animal.GravityOn(velocity.Y) * dt;
             airborne = true;
         }
         else if (jumping)
         {
             // Launch fast enough to clear the animal's jump height, and a running jump carries it further forward.
-            velocity.Y = Mathf.Sqrt(2f * _gravity * Stats.JumpHeight);
+            velocity.Y = Mathf.Sqrt(2f * Animal.Gravity * Stats.JumpHeight);
             velocity += direction * Stats.JumpBoost;
             airborne = true;
         }
@@ -386,8 +395,11 @@ public partial class Player : CharacterBody3D
         if (direction != Vector3.Zero)
             Animal.Rotation = new Vector3(0, Mathf.LerpAngle(Animal.Rotation.Y, Yaw(direction), Stats.TurnSpeed * dt), 0);
 
+        bool inAir = !IsOnFloor() && !IsSwimming;
         Velocity = velocity;
         MoveAndSlide();
+        if (inAir && IsOnFloor())
+            TouchDown(-velocity.Y);
 
         float groundSpeed = horizontal.Length();
         float stride;

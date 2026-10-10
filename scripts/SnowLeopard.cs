@@ -41,6 +41,12 @@ public partial class SnowLeopard : Animal
     /// <summary>How far the body tips nose-down, in radians, when landing forepaws first from a drop.</summary>
     private const float LandingTilt = 0.6f;
 
+    /// <summary>How far the body sinks onto bending legs, in modelled metres, to soak up the hardest landing.</summary>
+    private const float ImpactDrop = 0.11f;
+
+    /// <summary>How far the legs swing out sideways, in radians, when spread wide in a long fall.</summary>
+    private const float SpreadAngle = 0.9f;
+
     /// <summary>Distance from the body's centre to the shoulders and hips along the spine.</summary>
     private const float LegOffset = 0.33f;
 
@@ -128,14 +134,17 @@ public partial class SnowLeopard : Animal
         float run = Mathf.Clamp((speed - Stats.WalkSpeed) / (Stats.SprintSpeed - Stats.WalkSpeed), 0f, 1f);
 
         // Crouch to drink: the body sinks and tips forward onto bent forelegs.
-        float drop = eat * CrouchDrop;
+        // Landing hard, it sinks into a crouch on bending legs, the paws staying planted, and rises out of it again.
+        float drop = eat * CrouchDrop + Mathf.SmoothStep(0f, 1f, Impact) * ImpactDrop;
         float pitch = eat * CrouchPitch;
         float bob = Mathf.Abs(Mathf.Sin(_walkCycle)) * stride * Mathf.Lerp(0.015f, 0.06f, run);
 
         // Dropping from a tree, a snow leopard tips nose-down so its forepaws, stretched out ahead, meet the ground
-        // first and its strong shoulders take the impact; the hind legs trail and swing down after. The body pivots
-        // about the forepaws, so they stay at ground level while the hindquarters rise.
-        float tilt = Landing * LandingTilt;
+        // first and its strong shoulders take the impact; the hind legs swing down under it to land just after. The
+        // body pivots about the forepaws, so they stay at ground level while the hindquarters rise. In a long fall it
+        // flattens out level instead, legs spread wide to catch the air like a flying squirrel's.
+        float tilt = Landing * LandingTilt * (1f - Spread * 0.7f);
+        float splay = Mathf.SmoothStep(0f, 1f, Spread) * SpreadAngle;
 
         // Sitting tips the body back about the shoulders, so the forelegs stay planted while the rump sinks to the ground.
         var sitShift = TipAbout(new Vector3(0, FrontHipHeight, -LegOffset), SitPitch);
@@ -163,21 +172,23 @@ public partial class SnowLeopard : Animal
 
             // Forelegs fold with the elbow behind, hind legs with the knee in front. Both are corrected for
             // the body's forward tip so the paws stay under the shoulders and hips.
-            // When landing, the forelegs reach straight down to the ground and the hind legs trail, half folded.
+            // When landing, the forelegs reach down and a little ahead for the ground, and the hind legs swing down
+            // under the hips, hocks bent ready to spring; spread out in a long fall, every leg reaches out sideways.
             // Sitting, the forelegs stand straight and the hind legs fold under the haunches. Lying, the elbows rest on
             // the ground with the forearms stretched out in front, and the hind legs fold alongside the belly.
             // Every paw lies flat on the ground.
             if (front)
             {
-                _upperLegs[i].Rotation = new Vector3(Pose(swing - frontFold + pitch + tilt, -SitPitch + 0.05f, 0.6f), 0, 0);
+                _upperLegs[i].Rotation = new Vector3(Pose(swing - frontFold + pitch + tilt + Landing * 0.25f, -SitPitch + 0.05f, 0.6f), 0,
+                    side * splay);
                 _lowerLegs[i].Rotation = new Vector3(Pose(-lift + frontFold * 2f, 0f, 0.97f), 0, 0);
                 _paws[i].Rotation = new Vector3(Pose(0f, 0f, -1.57f), 0, 0);
             }
             else
             {
-                _upperLegs[i].Rotation = new Vector3(Pose(swing + backFold + pitch - Landing * 0.4f, sitFold - SitPitch, lieFold), 0,
-                    Pose(0f, side * 0.15f, side * 0.3f));
-                _lowerLegs[i].Rotation = new Vector3(Pose(lift * 0.7f - backFold * 2f + Landing * 0.6f, -sitFold * 2f, -lieFold * 2f), 0, 0);
+                _upperLegs[i].Rotation = new Vector3(Pose(swing + backFold + pitch + tilt * 0.5f, sitFold - SitPitch, lieFold), 0,
+                    Pose(side * splay, side * 0.15f, side * 0.3f));
+                _lowerLegs[i].Rotation = new Vector3(Pose(lift * 0.7f - backFold * 2f + Landing * 0.4f, -sitFold * 2f, -lieFold * 2f), 0, 0);
                 _paws[i].Rotation = new Vector3(Pose(0f, sitFold, lieFold), 0, 0);
             }
         }
@@ -185,17 +196,21 @@ public partial class SnowLeopard : Animal
         // The neck lowers to drink and nods slightly in step, while the head tilts back up so the chin,
         // not the forehead, meets the water.
         // Landing, it raises its head to keep its eyes on the ground ahead rather than the ground below.
+        // Taking the blow of a hard landing, the head dips with the body, then comes back up.
         // At rest it holds its head up and looks straight ahead, however the body is tipped.
-        _neck.Rotation = new Vector3(Pose(eat * HeadDownAngle + Mathf.Sin(_walkCycle * 2f) * 0.04f * stride + tilt * 0.7f, -SitPitch * 0.6f, 0.1f), 0, 0);
+        _neck.Rotation = new Vector3(Pose(eat * HeadDownAngle + Mathf.Sin(_walkCycle * 2f) * 0.04f * stride + tilt * 0.7f - Impact * 0.2f,
+            -SitPitch * 0.6f, 0.1f), 0, 0);
         _head.Rotation = new Vector3(Pose(-eat * HeadDownAngle * 0.5f, -SitPitch * 0.4f, -0.1f), 0, 0);
 
         // The tail sways slowly, each segment lagging the one above; it streams out straighter at a run.
         // At rest it lies along the ground and curls round the cat's side, its tip still twitching.
+        // Falling, the long, heavy tail swings up and round as a counterweight, the way snow leopards balance with it.
         for (int i = 0; i < _tail.Length; i++)
         {
             float lag = i * 0.5f;
-            float sway = Mathf.Sin(_time * 1.1f - lag) * 0.12f + Mathf.Sin(_walkCycle * 0.5f - lag) * 0.1f * stride;
-            float lift = i == 0 ? -run * 0.3f : -TailRest[i] * run * 0.7f;
+            float sway = Mathf.Sin(_time * 1.1f - lag) * 0.12f + Mathf.Sin(_walkCycle * 0.5f - lag) * 0.1f * stride
+                + Mathf.Sin(_time * 5f - lag) * 0.3f * Landing;
+            float lift = (i == 0 ? -run * 0.3f : -TailRest[i] * run * 0.7f) - (i == 0 ? 0.6f : TailRest[i] * 0.8f) * Landing;
             float curl = i < 2 ? 0f : 0.5f + sway * 0.5f;
             _tail[i].Rotation = new Vector3(
                 Pose(TailRest[i] + lift + Mathf.Sin(_time * 0.7f - lag) * 0.05f,

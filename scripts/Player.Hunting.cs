@@ -103,8 +103,7 @@ public partial class Player
             // A kill on the ground is shared: the pack crowds in to eat too. Up a tree, it's the cat's alone.
             if (!upTree && _herds.TryGetValue(Animal, out var pack) && pack.Feast(carcass))
             {
-                _message = $"Your pack eats the {name} with you";
-                _messageTime = 3f;
+                Announce($"Your {pack.Word} eats the {name} with you", 3f);
             }
         }
         else if (light && Input.IsActionJustPressed(InputSetup.Attack))
@@ -153,8 +152,7 @@ public partial class Player
         if (!Wildlife!.Bite(prey, BiteStrength * Stats.Strength * Size * Size, GlobalPosition)
             && _herds.TryGetValue(Animal, out var pack) && pack.Attack(prey))
         {
-            _message = $"Your pack joins the attack on the {prey.DisplayName.ToLower()}!";
-            _messageTime = 3f;
+            Announce($"Your {pack.Word} joins the attack on the {prey.DisplayName.ToLower()}!", 3f);
         }
     }
 

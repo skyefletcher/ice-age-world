@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Godot;
 
 namespace IceAgeWorld;
@@ -11,7 +12,8 @@ namespace IceAgeWorld;
 /// drifting crowd with its youngest in the middle and grazes whenever it stands still. Members follow the ground and
 /// swim across water, step round tree trunks and keep out of each other's way, but they are not solid. When the
 /// leader of a pack attacks a wild animal, the pack runs in, rings it and helps bring it down, and when the leader
-/// eats from a kill, the pack crowds round and eats with it.
+/// eats from a kill, the pack crowds round and eats with it. A snow leopard's family (a mate and their cub) hunts and
+/// feeds with the leader the same way, and whenever a cub grows up, another is born.
 /// </summary>
 public partial class Herd : Node3D
 {
@@ -22,6 +24,27 @@ public partial class Herd : Node3D
     public Func<Animal> Breed { get; init; } = null!;
 
     public int Count { get; init; }
+
+    /// <summary>
+    /// True for a snow leopard's family, which starts empty, until the leader finds a mate, and has a new cub each time
+    /// the last one grows up, up to <see cref="MaxFamily"/>.
+    /// </summary>
+    public bool IsFamily { get; init; }
+
+    /// <summary>
+    /// The most a family grows to, mate and leader not counted among the cubs: every snow leopard is costly to draw, and
+    /// real ones leave their mother at about two years old rather than staying on for good.
+    /// </summary>
+    private const int MaxFamily = 8;
+
+    /// <summary>What the leader calls its companions in news about them.</summary>
+    public string Word => IsFamily ? "family" : _isHerd ? "herd" : "pack";
+
+    /// <summary>True once there is anyone travelling with the leader.</summary>
+    public bool Any => _members.Count > 0;
+
+    /// <summary>Where each companion is.</summary>
+    public IEnumerable<Vector3> Positions => _members.Select(m => m.Body.GlobalPosition);
 
     private sealed class Member
     {
@@ -38,6 +61,14 @@ public partial class Herd : Node3D
 
         /// <summary>How grown it is, as a fraction of full size; a newcomer starts small and grows.</summary>
         public float Size = 1f;
+
+        /// <summary>The prey a snow leopard has its jaws clamped on, if any, and which side of it it hangs on.</summary>
+        public Animal? Gripping;
+        public Vector3 GripSide;
+
+        /// <summary>Seconds it has held on so far, and seconds left getting its breath back before it can leap on again.</summary>
+        public float GripTime;
+        public float GripRest;
     }
 
     private readonly List<Member> _members = [];
@@ -53,6 +84,19 @@ public partial class Herd : Node3D
     /// <see cref="Wildlife.Bite"/>): a few of them together make short work of a calf.
     /// </summary>
     private const float PackBiteStrength = 4f;
+
+    /// <summary>
+    /// How hard a family snow leopard's clamped jaws do damage, per second, using the special attack as the player's cat
+    /// does (see <see cref="Player.GripStrength"/>), a little weaker than the leader's own.
+    /// </summary>
+    private const float FamilyGripStrength = 20f;
+
+    /// <summary>
+    /// Seconds a family snow leopard can hold on before it tires and lets go, about as long as the player's cat lasts on
+    /// a full stamina bar, then seconds it bites and harries instead while it gets its breath back.
+    /// </summary>
+    private const float GripHoldSeconds = 7f;
+    private const float GripRestSeconds = 4f;
 
     /// <summary>
     /// The pack gives up on its prey this many seconds after the leader last went for it, or once the leader is this
@@ -97,10 +141,7 @@ public partial class Herd : Node3D
             var body = new Node3D { Name = animal.GetType().Name + i };
             body.AddChild(animal);
             AddChild(body);
-
-            _isHerd = animal.Stats.Can(Ability.Herd);
-            // A pack keeps tight about its leader, close enough to touch; a herd spreads out more.
-            _spacing = animal.Stats.BodyRadius * 2f + (_isHerd ? 2.5f : 0.6f);
+            Fit(animal);
 
             // Real herds and packs are of mixed ages and sizes; the last of a herd is a calf.
             float size = _isHerd && i == Count - 1 ? 0.6f : 1f - 0.06f * (i % 3);
@@ -108,6 +149,14 @@ public partial class Herd : Node3D
 
             _members.Add(new Member { Body = body, Animal = animal, Slot = SlotFor(i) * _spacing });
         }
+    }
+
+    /// <summary>Works out how the companions keep together from what kind of animal they are.</summary>
+    private void Fit(Animal animal)
+    {
+        _isHerd = animal.Stats.Can(Ability.Herd);
+        // A pack keeps tight about its leader, close enough to touch; a herd spreads out more.
+        _spacing = animal.Stats.BodyRadius * 2f + (_isHerd ? 2.5f : 0.6f);
     }
 
     /// <summary>
@@ -133,19 +182,22 @@ public partial class Herd : Node3D
 
     /// <summary>
     /// A new member is born into the pack or herd, as a youngster at the leader's side, and grows up over a couple of
-    /// minutes. A wolf the player killed in a fight is reborn this way, as one of the player's own pack.
+    /// minutes. A wolf the player killed in a fight is reborn this way, as one of the player's own pack. A grown animal
+    /// can join too, <paramref name="size"/> 1, e.g. a snow leopard's mate, walking up from <paramref name="at"/>.
     /// </summary>
-    public void Recruit()
+    public void Recruit(float size = YoungSize, Vector3? at = null)
     {
         var animal = Breed();
         var body = new Node3D { Name = animal.GetType().Name + _members.Count };
         body.AddChild(animal);
         AddChild(body);
-        body.Scale = Vector3.One * YoungSize;
+        body.Scale = Vector3.One * size;
+        if (_members.Count == 0)
+            Fit(animal);
 
-        var member = new Member { Body = body, Animal = animal, Slot = SlotFor(_members.Count) * _spacing, Size = YoungSize };
+        var member = new Member { Body = body, Animal = animal, Slot = SlotFor(_members.Count) * _spacing, Size = size };
         float yaw = Leader.Animal.Rotation.Y;
-        var spot = Leader.GlobalPosition + member.Slot.Rotated(Vector3.Up, yaw);
+        var spot = at ?? Leader.GlobalPosition + member.Slot.Rotated(Vector3.Up, yaw);
         spot.Y = Leader.Terrain?.GetHeight(spot.X, spot.Z) ?? Leader.GlobalPosition.Y;
         body.GlobalPosition = spot;
         member.Yaw = yaw;
@@ -159,7 +211,7 @@ public partial class Herd : Node3D
     /// </summary>
     public bool Attack(Animal prey)
     {
-        if (_isHerd)
+        if (_isHerd || !Any)
             return false;
         bool joining = Target != prey;
         Target = prey;
@@ -173,7 +225,7 @@ public partial class Herd : Node3D
     /// </summary>
     public bool Feast(Animal carcass)
     {
-        if (_isHerd)
+        if (_isHerd || !Any)
             return false;
         // The leader feeding means the hunt is over.
         Target = null;
@@ -190,6 +242,7 @@ public partial class Herd : Node3D
         float yaw = Leader.Animal.Rotation.Y;
         foreach (var member in _members)
         {
+            LetGo(member);
             var spot = Leader.GlobalPosition + member.Slot.Rotated(Vector3.Up, yaw);
             spot.Y = Leader.Terrain?.GetHeight(spot.X, spot.Z) ?? Leader.GlobalPosition.Y;
             member.Body.GlobalPosition = spot;
@@ -202,8 +255,13 @@ public partial class Herd : Node3D
 
     public override void _Process(double delta)
     {
+        // Out of sight (the player has become another animal), nobody keeps hold of anything.
         if (!IsVisibleInTree())
+        {
+            foreach (var member in _members)
+                LetGo(member);
             return;
+        }
 
         float dt = (float)delta;
         _time += dt;
@@ -234,11 +292,16 @@ public partial class Herd : Node3D
         var terrain = Leader.Terrain;
         float leaderYaw = Leader.Animal.Rotation.Y;
 
-        // A newcomer grows up as it travels with the others.
+        // A newcomer grows up as it travels with the others. In a family, a cub growing up means a new one is born.
         if (member.Size < 1f)
         {
             member.Size = Mathf.Min(1f, member.Size + (1f - YoungSize) / GrowUpSeconds * dt);
             member.Body.Scale = Vector3.One * member.Size;
+            if (member.Size >= 1f && IsFamily && _members.Count <= MaxFamily)
+            {
+                Recruit();
+                Leader.Announce($"Your cub is all grown up, and a new {Leader.Animal.YoungName.ToLower()} is born!");
+            }
         }
         var position = member.Body.GlobalPosition;
 
@@ -256,6 +319,17 @@ public partial class Herd : Node3D
         float bite = 0f;
         Vector3? faceAt = null;
         var prey = Target;
+        member.GripRest = Mathf.Max(0f, member.GripRest - dt);
+        if (member.Gripping is not null && (member.Gripping != prey || member.GripTime > GripHoldSeconds))
+        {
+            LetGo(member);
+            member.GripRest = GripRestSeconds;
+        }
+        if (member.Gripping is not null)
+        {
+            HoldOn(member, dt);
+            return;
+        }
         if (prey is not null)
         {
             var wildlife = Leader.Wildlife!;
@@ -264,7 +338,18 @@ public partial class Herd : Node3D
             target = prey.GlobalPosition + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * ring;
             if (((position - prey.GlobalPosition) with { Y = 0f }).Length() < ring + 0.8f)
             {
-                // A youngster bites with a youngster's jaws.
+                // A snow leopard that has its breath leaps on and clamps its jaws, as the player's cat can; anything
+                // else, or a cat still winded, bites and lets go. A youngster bites with a youngster's jaws.
+                if (stats.Can(Ability.Grip) && member.GripRest <= 0f)
+                {
+                    var side = (position - prey.GlobalPosition) with { Y = 0f };
+                    member.GripSide = side.LengthSquared() > 0.0001f ? side.Normalized() : Vector3.Back;
+                    member.Gripping = prey;
+                    member.GripTime = 0f;
+                    wildlife.Grip(prey, true);
+                    HoldOn(member, dt);
+                    return;
+                }
                 wildlife.Bite(prey, PackBiteStrength * member.Size * member.Size * dt, position);
                 bite = 0.6f + 0.4f * Mathf.Sin(_time * 12f + index);
                 faceAt = prey.GlobalPosition;
@@ -358,6 +443,49 @@ public partial class Herd : Node3D
         float stride = swimming ? 1f : Mathf.Clamp(moving / stats.WalkSpeed, 0f, 1f);
         float graze = Graze(member, moving, swimming, dt);
         member.Animal.Animate(swimming ? moving + 2f : moving, stride, Mathf.Max(graze, bite), dt);
+    }
+
+    /// <summary>
+    /// A snow leopard hanging on to the prey, jaws clamped, rides along pressed against its flank, facing in, doing far
+    /// more damage than biting, until the prey falls or the cat tires and lets go.
+    /// </summary>
+    private void HoldOn(Member member, float dt)
+    {
+        var prey = member.Gripping!;
+        var stats = member.Animal.Stats;
+        var wildlife = Leader.Wildlife!;
+        member.GripTime += dt;
+        if (wildlife.Bite(prey, FamilyGripStrength * member.Size * member.Size * dt, member.Body.GlobalPosition))
+        {
+            LetGo(member);
+            return;
+        }
+
+        float reach = prey.Stats.BodyRadius * wildlife.SizeOf(prey) + stats.BodyRadius * member.Size * 0.6f;
+        var spot = prey.GlobalPosition + member.GripSide * reach;
+        float ground = Leader.Terrain?.GetHeight(spot.X, spot.Z) ?? spot.Y;
+        float? surface = Leader.Water?.SurfaceAt(spot);
+        float floatDepth = stats.FloatDepth * member.Size;
+        bool swimming = surface.HasValue && surface.Value - ground > floatDepth;
+        spot.Y = swimming ? surface!.Value - floatDepth : ground;
+
+        // Legs scrabbling to keep up as the prey drags it along, head down and jaws locked.
+        float speed = ((spot - member.Body.GlobalPosition) with { Y = 0f }).Length() / Mathf.Max(dt, 0.001f);
+        member.Body.GlobalPosition = spot;
+        member.Velocity = Vector3.Zero;
+        member.Yaw = Mathf.Atan2(member.GripSide.X, member.GripSide.Z);
+        member.Animal.Rotation = new Vector3(0f, member.Yaw, 0f);
+        member.Animal.Settle(Posture.Standing, Leader.PostureChangeSeconds, dt);
+        member.Animal.IsSwimming = swimming;
+        member.Animal.Animate(speed, Mathf.Clamp(speed / stats.WalkSpeed, 0f, 1f), 0.9f, dt);
+    }
+
+    /// <summary>Lets go of the prey, if the member has hold of any.</summary>
+    private void LetGo(Member member)
+    {
+        if (member.Gripping is { } prey)
+            Leader.Wildlife?.Grip(prey, false);
+        member.Gripping = null;
     }
 
     /// <summary>

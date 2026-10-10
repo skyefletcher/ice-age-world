@@ -42,11 +42,6 @@ public partial class Player
     /// <summary>True while facing out towards the branch tip, false while facing back to the trunk.</summary>
     private bool _facingOut;
 
-    /// <summary>True from leaping out of a tree until the animal is down on the ground again.</summary>
-    private bool _fromTree;
-
-    /// <summary>Seconds after touching down, forepaws first, for the hind legs to come down too.</summary>
-    private const float SettleDuration = 0.35f;
 
     /// <summary>Climbing speed up the trunk: agile animals scramble up fast, but slower hauling a kill.</summary>
     private float ClimbSpeed => (1f + Stats.Scores.Agility * 0.25f) * (IsCarrying ? CarrySpeed : 1f);
@@ -313,24 +308,8 @@ public partial class Player
         _mode = Mode.Ground;
         _fromTree = true;
         Animal.IsClimbing = false;
-        Animal.Rotation = new Vector3(0, Yaw(direction), 0);
-        Velocity = direction * (2f + boost) + Vector3.Up * Mathf.Sqrt(2f * _gravity * Stats.JumpHeight) * 0.5f;
-    }
-
-    /// <summary>
-    /// After a leap out of a tree, tips the animal forward as it falls, the faster the further, so it lands on its
-    /// forepaws, then lets its hindquarters down once it is on the ground.
-    /// </summary>
-    private void UpdateLanding(float dt)
-    {
-        if (_fromTree && !IsOnFloor() && !IsSwimming)
-        {
-            float target = Mathf.Clamp(-Velocity.Y / 6f, 0f, 1f);
-            Animal.Landing = Mathf.MoveToward(Animal.Landing, target, 3f * dt);
-            return;
-        }
-        _fromTree = false;
-        Animal.Landing = Mathf.MoveToward(Animal.Landing, 0f, dt / SettleDuration);
+        StartRighting(Yaw(direction));
+        Velocity = direction * (2f + boost) + Vector3.Up * Mathf.Sqrt(2f * Animal.Gravity * Stats.JumpHeight) * 0.5f;
     }
 
     /// <summary>Back on the ground at the foot of the trunk, facing away from it.</summary>

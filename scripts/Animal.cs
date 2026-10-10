@@ -141,6 +141,20 @@ public sealed record AnimalStats
 
     public bool Can(Ability ability) => (Abilities & ability) != 0;
 
+    /// <summary>
+    /// The highest drop, in metres, the animal lands from unhurt. Cats are built for it: they twist upright, spread
+    /// out to slow themselves and land on springy legs, surviving falls that would kill a wolf, so a climber shrugs
+    /// off 20 m. Anything else lands safely from about twice its own jump.
+    /// </summary>
+    public float SafeDrop => Can(Ability.ClimbTrees) ? 20f : 1f + JumpHeight * 2f;
+
+    /// <summary>
+    /// Health, from 100, a drop of <paramref name="height"/> metres takes: nothing up to <see cref="SafeDrop"/>, and all
+    /// of it from four times that. A bird opens its wings before it hits the ground, so it is never hurt.
+    /// </summary>
+    public float FallDamage(float height) =>
+        Can(Ability.Fly) ? 0f : 100f * Mathf.Clamp((height - SafeDrop) / (SafeDrop * 3f), 0f, 1f);
+
     private static float TurnSpeedFor(int agility) => 1.5f + agility * 0.85f;
 
     /// <summary>How far below the water surface the animal's feet hang while it floats.</summary>
@@ -215,6 +229,27 @@ public abstract partial class Animal : Node3D
 
     /// <summary>0..1 how far a dropping animal has tipped forward to land forepaws first, easing back to 0 after touchdown.</summary>
     public float Landing { get; set; }
+
+    /// <summary>0..1 how deep the animal has crouched to soak up a hard landing, easing back up as it recovers.</summary>
+    public float Impact { get; set; }
+
+    /// <summary>0..1 how far a long-falling animal has spread its legs out wide, as a falling cat does to slow itself.</summary>
+    public float Spread { get; set; }
+
+    /// <summary>
+    /// How hard gravity pulls, in m/s². Heavier than the real 9.8 so big animals don't drift through the air like
+    /// balloons: jumps keep their height but rise and fall quicker.
+    /// </summary>
+    public const float Gravity = 15f;
+
+    /// <summary>How much harder gravity pulls on the way down than up, so a jump hangs at the top and then drops fast.</summary>
+    public const float FallingGravity = 1.4f;
+
+    /// <summary>Gravity on something moving up or down at <paramref name="verticalSpeed"/>.</summary>
+    public static float GravityOn(float verticalSpeed) => verticalSpeed < 0f ? Gravity * FallingGravity : Gravity;
+
+    /// <summary>How high a drop something has fallen to hit the ground at <paramref name="speed"/>.</summary>
+    public static float DropHeight(float speed) => speed * speed / (2f * Gravity * FallingGravity);
 
     /// <summary>0..1 how far a flying animal has tucked its wings in to dive.</summary>
     public float Dive { get; set; }

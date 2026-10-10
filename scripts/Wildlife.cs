@@ -118,6 +118,9 @@ public partial class Wildlife : Node3D
 
         public Vector3 Velocity;
         public float Yaw;
+
+        /// <summary>How fast it is falling, in m/s upward (so negative while it falls), once it has gone over an edge.</summary>
+        public float Fall;
         public float Size = 1f;
 
         /// <summary>Breath from 0 to 100, worked out from the animal's stamina score the same way as the player's.</summary>
@@ -147,8 +150,10 @@ public partial class Wildlife : Node3D
         /// <summary>True once it has been left up a tree, where it stays put rather than dropping to the ground.</summary>
         public bool Perched;
 
-        /// <summary>True while a snow leopard has its jaws clamped on it, slowing it to a stagger.</summary>
-        public bool Gripped;
+        /// <summary>How many snow leopards have their jaws clamped on it; any at all slow it to a stagger.</summary>
+        public int Grips;
+
+        public bool Gripped => Grips > 0;
 
         /// <summary>True for a wolf the player killed as a wolf, which is reborn into the player's pack.</summary>
         public bool JoinsPlayer;
@@ -1127,7 +1132,7 @@ public partial class Wildlife : Node3D
         beast.Remains = 1f;
         beast.HeldAt = null;
         beast.Perched = false;
-        beast.Gripped = false;
+        beast.Grips = 0;
         beast.JoinsPlayer = false;
         beast.Stamina = 100f;
         beast.IsExhausted = false;
@@ -1251,7 +1256,7 @@ public partial class Wildlife : Node3D
                         }
                         else
                         {
-                            player.Bitten(BearPlayerMaul * dt);
+                            player.Bitten(BearPlayerMaul * dt, beast.Animal);
                         }
                         eat = 0.6f + 0.4f * Mathf.Sin(_time * 8f);
                     }
@@ -1305,7 +1310,7 @@ public partial class Wildlife : Node3D
                         if (prey is not null)
                             prey.Health -= BiteDamage / Mathf.Max(0.3f, prey.Size * prey.Size) * dt;
                         else
-                            player.Bitten(PlayerBiteDamage * dt);
+                            player.Bitten(PlayerBiteDamage * dt, beast.Animal);
                         eat = 0.6f + 0.4f * Mathf.Sin(_time * 12f + index);
                     }
                     break;
@@ -1393,7 +1398,7 @@ public partial class Wildlife : Node3D
         float floatDepth = stats.FloatDepth * beast.Size;
         bool swimming = surface.HasValue && surface.Value - ground > floatDepth;
         float height = swimming ? surface!.Value - floatDepth : ground;
-        position.Y = Mathf.Lerp(position.Y, height, Mathf.Min(1f, 10f * dt));
+        position.Y = Drop(beast, position.Y, height, OverEdge, soft: swimming, dt);
         beast.Body.GlobalPosition = position;
         beast.IsWading = !swimming && surface.HasValue && surface.Value - ground > stats.WadeDepth * beast.Size;
 
@@ -1450,14 +1455,48 @@ public partial class Wildlife : Node3D
     /// <summary>How grown a wild animal is, as a fraction of its full size.</summary>
     public float SizeOf(Animal animal) => _beasts.TryGetValue(animal, out var beast) ? beast.Size : 1f;
 
+    /// <summary>
+    /// The wild snow leopard within <paramref name="range"/> of <paramref name="at"/>, alive and on the ground, if there
+    /// is one: a mate for the player's snow leopard.
+    /// </summary>
+    public Animal? MateNear(Vector3 at, float range) =>
+        _groups.Where(g => g.Kind == Kind.Loner).SelectMany(g => g.Members)
+            .FirstOrDefault(c => c.Animal is SnowLeopard && !c.IsDead && !c.OnTree && c.Body.GlobalPosition.DistanceTo(at) < range)
+            ?.Animal;
+
+    /// <summary>
+    /// A wild animal leaves the wild for good to travel with the player, e.g. a snow leopard pairing up with the
+    /// player's. Anything hunting it gives up. Returns where it was.
+    /// </summary>
+    public Vector3 Leave(Animal animal)
+    {
+        var beast = _beasts[animal];
+        _beasts.Remove(animal);
+        beast.Group.Members.Remove(beast);
+        if (beast.Group.Members.Count == 0)
+            _groups.Remove(beast.Group);
+        foreach (var group in _groups.Where(g => g.Prey == beast))
+        {
+            group.Prey = null;
+            group.Activity = Activity.Roaming;
+        }
+        var at = beast.Body.GlobalPosition;
+        beast.Body.QueueFree();
+        return at;
+    }
+
+    /// <summary>Where every living wild animal of the given kind is, e.g. for the map.</summary>
+    public IEnumerable<Vector3> WhereAre(System.Type kind) =>
+        _beasts.Values.Where(b => !b.IsDead && b.Animal.GetType() == kind).Select(b => b.Body.GlobalPosition);
+
     /// <summary>True while a wild animal is alive.</summary>
     public bool IsAlive(Animal animal) => _beasts.TryGetValue(animal, out var beast) && !beast.IsDead;
 
-    /// <summary>A hunter clamps its jaws onto a wild animal and holds on, or lets go of it.</summary>
+    /// <summary>A hunter clamps its jaws onto a wild animal and holds on, or lets go of it; several can hold on at once.</summary>
     public void Grip(Animal prey, bool holding)
     {
         if (_beasts.TryGetValue(prey, out var beast))
-            beast.Gripped = holding && !beast.IsDead;
+            beast.Grips = holding && !beast.IsDead ? beast.Grips + 1 : Mathf.Max(0, beast.Grips - 1);
     }
 
     /// <summary>
@@ -1516,14 +1555,19 @@ public partial class Wildlife : Node3D
             cat.Animal.Animate(moving ? speed : 0f, moving ? 1f : 0f, 0f, dt);
     }
 
-    /// <summary>Back on the ground at the foot of its tree, or dropping out of it if it dies up there.</summary>
+    /// <summary>
+    /// Back on the ground at the foot of its tree, or, if it dies up there, dropping out of it: it slips off clear of
+    /// the trunk and falls, limp, the whole way down.
+    /// </summary>
     private void FallFromTree(Beast cat)
     {
         if (cat.Refuge is { } tree)
         {
             var outward = new Vector3(Mathf.Cos(cat.ClimbAngle), 0f, Mathf.Sin(cat.ClimbAngle));
             var foot = tree.Transform.Origin + outward * (tree.CollisionRadius + cat.Animal.Stats.BodyRadius * cat.Size + 0.05f);
-            cat.Body.GlobalPosition = foot with { Y = _terrain.GetHeight(foot.X, foot.Z) };
+            float ground = _terrain.GetHeight(foot.X, foot.Z);
+            cat.Body.GlobalPosition = foot with { Y = cat.IsDead ? Mathf.Max(ground, cat.Body.GlobalPosition.Y) : ground };
+            cat.Fall = 0f;
             cat.Yaw = Yaw(outward);
         }
         cat.Refuge = null;
@@ -1532,6 +1576,36 @@ public partial class Wildlife : Node3D
         cat.ClimbHeight = 0f;
         cat.Animal.IsClimbing = false;
         cat.Animal.Rotation = new Vector3(0f, cat.Yaw, 0f);
+    }
+
+    /// <summary>
+    /// How far above the ground an animal on the move has to find itself, in metres, before it is falling rather than
+    /// just running downhill: off a cliff edge, say. Below that it keeps its feet on the slope.
+    /// </summary>
+    private const float OverEdge = 1.5f;
+
+    /// <summary>
+    /// Brings an animal at height <paramref name="y"/> down to <paramref name="height"/> (the ground, or where it floats).
+    /// More than <paramref name="edge"/> above it, it falls under gravity, and a drop beyond what it can take hurts it,
+    /// unless it lands <paramref name="soft"/>ly in the water; closer, it just follows the lie of the land. Returns its new height.
+    /// </summary>
+    private static float Drop(Beast beast, float y, float height, float edge, bool soft, float dt)
+    {
+        if (y - height <= edge && beast.Fall >= 0f)
+        {
+            beast.Fall = 0f;
+            return Mathf.Lerp(y, height, Mathf.Min(1f, 10f * dt));
+        }
+
+        beast.Fall -= Animal.GravityOn(beast.Fall) * dt;
+        y += beast.Fall * dt;
+        if (y > height)
+            return y;
+
+        if (!soft && !beast.IsDead)
+            beast.Health -= beast.Animal.Stats.FallDamage(Animal.DropHeight(-beast.Fall));
+        beast.Fall = 0f;
+        return height;
     }
 
     /// <summary>A fallen animal goes limp where it fell, shrinking as it is eaten and sinking away before it is reborn.</summary>
@@ -1549,7 +1623,8 @@ public partial class Wildlife : Node3D
         if (beast.HeldAt.HasValue)
             position.Y = Mathf.Max(position.Y, ground);
         else if (!beast.Perched)
-            position.Y = afloat ? surface!.Value - beast.Animal.Stats.FloatDepth * beast.Size : ground;
+            position.Y = Drop(beast, position.Y, afloat ? surface!.Value - beast.Animal.Stats.FloatDepth * beast.Size : ground, 0.05f,
+                soft: afloat, dt);
         beast.Body.GlobalPosition = position;
         beast.Animal.Rotation = new Vector3(0f, beast.Yaw, 0f);
         beast.Animal.IsSwimming = afloat && !beast.Perched && !beast.HeldAt.HasValue;

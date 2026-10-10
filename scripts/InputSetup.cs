@@ -21,6 +21,7 @@ public static class InputSetup
     public const string Sit = "sit";
     public const string LieDown = "lie_down";
     public const string SwitchAnimal = "switch_animal";
+    public const string Map = "map";
 
     public static void Register()
     {
@@ -38,6 +39,7 @@ public static class InputSetup
         Add(Sit, Key.C);
         Add(LieDown, Key.X);
         Add(SwitchAnimal, Key.Tab);
+        Add(Map, Key.M);
     }
 
     private static void Add(string action, params Key[] keys) =>
