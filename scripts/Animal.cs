@@ -141,19 +141,17 @@ public sealed record AnimalStats
 
     public bool Can(Ability ability) => (Abilities & ability) != 0;
 
-    /// <summary>
-    /// The highest drop, in metres, the animal lands from unhurt. Cats are built for it: they twist upright, spread
-    /// out to slow themselves and land on springy legs, surviving falls that would kill a wolf, so a climber shrugs
-    /// off 20 m. Anything else lands safely from about twice its own jump.
-    /// </summary>
-    public float SafeDrop => Can(Ability.ClimbTrees) ? 20f : 1f + JumpHeight * 2f;
+    /// <summary>The highest drop, in metres, the animal lands from unhurt: about twice its own jump.</summary>
+    public float SafeDrop => 1f + JumpHeight * 2f;
 
     /// <summary>
     /// Health, from 100, a drop of <paramref name="height"/> metres takes: nothing up to <see cref="SafeDrop"/>, and all
-    /// of it from four times that. A bird opens its wings before it hits the ground, so it is never hurt.
+    /// of it from four times that. A climber is never hurt: cats are built for falling, twisting upright, spreading out
+    /// to slow themselves and landing on springy legs, and snow leopards leap down cliffs after their prey. Nor is a
+    /// bird, which opens its wings before it hits the ground.
     /// </summary>
     public float FallDamage(float height) =>
-        Can(Ability.Fly) ? 0f : 100f * Mathf.Clamp((height - SafeDrop) / (SafeDrop * 3f), 0f, 1f);
+        Can(Ability.ClimbTrees) || Can(Ability.Fly) ? 0f : 100f * Mathf.Clamp((height - SafeDrop) / (SafeDrop * 3f), 0f, 1f);
 
     private static float TurnSpeedFor(int agility) => 1.5f + agility * 0.85f;
 

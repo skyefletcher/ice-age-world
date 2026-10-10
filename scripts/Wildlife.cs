@@ -79,6 +79,30 @@ public partial class Wildlife : Node3D
     [Export] public float BearMaul { get; set; } = 60f;
     [Export] public float BearPlayerMaul { get; set; } = 15f;
 
+    /// <summary>
+    /// Chance that the wild snow leopard wants no mate and fights the player's off instead. Snow leopards are solitary
+    /// and only tolerate each other in the mating season, so a meeting can as easily end in a scrap.
+    /// </summary>
+    [Export] public float RefuseChance { get; set; } = 0.5f;
+
+    /// <summary>
+    /// Health a fighting snow leopard's bites take from the player each second, if it's the size of a wolf: only its
+    /// ordinary bites, never the leap-and-hold, so a player that fights back wins, and one that doesn't loses.
+    /// </summary>
+    [Export] public float RivalBite { get; set; } = 8f;
+
+    /// <summary>Health a fighting snow leopard is worn down to before it gives in, rather than fighting to the death: half.</summary>
+    private const float RivalGivesIn = 50f;
+
+    /// <summary>
+    /// Health a second a wound left by a grown snow leopard's clamped jaws first bleeds from prey of unit bulk. A big
+    /// animal has more blood to lose, so a mammoth barely notices while a reindeer can bleed to death.
+    /// </summary>
+    [Export] public float BleedStrength { get; set; } = 6f;
+
+    /// <summary>Seconds for a wound to bleed down to about a third as fast; it stops altogether a little after that.</summary>
+    [Export] public float BleedSeconds { get; set; } = 4f;
+
     /// <summary>Health a wounded animal that escaped gets back each second.</summary>
     [Export] public float HealPerSecond { get; set; } = 0.5f;
 
@@ -155,6 +179,17 @@ public partial class Wildlife : Node3D
 
         public bool Gripped => Grips > 0;
 
+        /// <summary>How many of those are pinning it down, being too big for it to drag; any at all hold it still.</summary>
+        public int Pins;
+
+        public bool Pinned => Pins > 0;
+
+        /// <summary>Health lost each second to a wound left by a snow leopard's jaws; it ebbs away as the wound closes.</summary>
+        public float Bleeding;
+
+        /// <summary>Blood dripping from the wound while it bleeds, made the first time it does.</summary>
+        public CpuParticles3D? Blood;
+
         /// <summary>True for a wolf the player killed as a wolf, which is reborn into the player's pack.</summary>
         public bool JoinsPlayer;
 
@@ -196,8 +231,20 @@ public partial class Wildlife : Node3D
         public Beast? Prey;
         public float Timer;
 
-        /// <summary>True while the pack is hunting the player rather than a wild <see cref="Prey"/>.</summary>
+        /// <summary>
+        /// True while the pack is hunting the player rather than a wild <see cref="Prey"/>; for a lone snow leopard,
+        /// while it is fighting the player's snow leopard off rather than pairing up with it.
+        /// </summary>
         public bool HuntsPlayer;
+
+        /// <summary>
+        /// A lone snow leopard's mind about the player's: null until they first meet, then true if it wants no mate and
+        /// fights instead, every time the player comes close, until it is beaten.
+        /// </summary>
+        public bool? Refuses;
+
+        /// <summary>True once a lone snow leopard has lost a fight with the player's and gives in to pairing up.</summary>
+        public bool Beaten;
 
         /// <summary>Seconds the prey has been out of reach, up a tree or in the air, while the pack waits below.</summary>
         public float OutOfReach;
@@ -443,20 +490,105 @@ public partial class Wildlife : Node3D
     /// <summary>
     /// The player bites a wild animal. <paramref name="strength"/> is how much health the bite takes from an animal of
     /// unit bulk; a big animal shrugs off more, so an otter dies to one bite, a wolf to a few and a grown mammoth only
-    /// to dozens. Its herd or raft flees from <paramref name="from"/>. Returns true if the bite killed it.
+    /// to dozens. Its herd or raft flees from <paramref name="from"/>. Returns true if the bite killed it, or beat a
+    /// snow leopard that was fighting the player, so the player stops attacking it either way.
     /// </summary>
     public bool Bite(Animal prey, float strength, Vector3 from)
     {
-        if (!_beasts.TryGetValue(prey, out var beast) || beast.IsDead)
+        if (!_beasts.TryGetValue(prey, out var beast) || beast.IsDead || beast.Group.Beaten)
             return false;
 
-        beast.Health -= strength / beast.Bulk;
-        if (beast.IsDead && beast.Group.IsPack && Player?.Animal is ArcticWolf)
-            beast.JoinsPlayer = true;
-        if (!beast.Group.IsPack)
+        if (Wound(beast, strength / beast.Bulk))
+            return true;
+        // A snow leopard fighting the player's stands its ground rather than running.
+        if (!beast.Group.IsPack && !beast.Group.HuntsPlayer)
             Scare(beast.Group, from);
         return beast.IsDead;
     }
+
+    /// <summary>
+    /// Takes <paramref name="damage"/> from a wild animal's health on the player's account, by bite or by bleeding.
+    /// Returns true if it beat a snow leopard that was fighting the player: once worn down to half, it gives in rather
+    /// than fighting to the death.
+    /// </summary>
+    private bool Wound(Beast beast, float damage)
+    {
+        beast.Health -= damage;
+        if (beast.Group.Kind == Kind.Loner && beast.Group.HuntsPlayer && beast.Health <= RivalGivesIn)
+        {
+            beast.Health = RivalGivesIn;
+            beast.Group.HuntsPlayer = false;
+            beast.Group.Beaten = true;
+            beast.Bleeding = 0f;
+            return true;
+        }
+        if (beast.IsDead && beast.Group.IsPack && Player?.Animal is ArcticWolf)
+            beast.JoinsPlayer = true;
+        return false;
+    }
+
+    /// <summary>
+    /// The player's snow leopard has let go of a wild animal, leaving a wound that bleeds for a while after, the worse
+    /// the bigger the cat that made it (<paramref name="strength"/> is its size squared).
+    /// </summary>
+    public void Bleed(Animal prey, float strength)
+    {
+        if (!_beasts.TryGetValue(prey, out var beast) || beast.IsDead || beast.Group.Beaten)
+            return;
+        beast.Bleeding = Mathf.Max(beast.Bleeding, BleedStrength * strength / beast.Bulk);
+        if (beast.Blood is null)
+        {
+            beast.Blood = BloodDrops(beast.Animal.Stats);
+            beast.Body.AddChild(beast.Blood);
+        }
+    }
+
+    /// <summary>The wound bleeds, slower and slower, until it stops; blood drips while it does.</summary>
+    private void Bleed(Beast beast, float dt)
+    {
+        if (beast.Bleeding > 0f && !beast.IsDead && !beast.Group.Beaten)
+        {
+            Wound(beast, beast.Bleeding * dt);
+            beast.Bleeding *= Mathf.Exp(-dt / BleedSeconds);
+            if (beast.Bleeding < 0.3f)
+                beast.Bleeding = 0f;
+        }
+        else
+        {
+            beast.Bleeding = 0f;
+        }
+        if (beast.Blood is { } blood)
+            blood.Emitting = beast.Bleeding > 0f;
+    }
+
+    /// <summary>
+    /// Dark red drops that fall from the animal's neck and shoulders, where a cat's jaws clamp on. They are in the body's
+    /// own space, so they scale with a youngster.
+    /// </summary>
+    private static CpuParticles3D BloodDrops(AnimalStats stats) => new()
+    {
+        Emitting = false,
+        Amount = 40,
+        Lifetime = 0.9f,
+        LocalCoords = false,
+        Position = new Vector3(0f, stats.BodyHeight * 0.65f, -stats.BodyRadius * 0.6f),
+        EmissionShape = CpuParticles3D.EmissionShapeEnum.Sphere,
+        EmissionSphereRadius = stats.BodyRadius * 0.5f,
+        Direction = Vector3.Down,
+        Spread = 25f,
+        InitialVelocityMin = 0.2f,
+        InitialVelocityMax = 0.8f,
+        ScaleAmountMin = 0.6f,
+        ScaleAmountMax = 1.4f,
+        Mesh = new SphereMesh
+        {
+            Radius = 0.03f,
+            Height = 0.07f,
+            RadialSegments = 6,
+            Rings = 3,
+            Material = new StandardMaterial3D { AlbedoColor = new Color(0.45f, 0.02f, 0.02f), Roughness = 0.3f },
+        },
+    };
 
     /// <summary>Takes one mouthful from a carcass. <paramref name="share"/> is how much of a unit-bulk carcass one mouthful eats.</summary>
     public bool EatFrom(Animal carcass, float share)
@@ -774,9 +906,30 @@ public partial class Wildlife : Node3D
         }
 
         if (loner.Fleeing > 0f)
+        {
             RunFrom(loner, dt);
+        }
+        else if (loner.HuntsPlayer)
+        {
+            // Fighting the player's snow leopard: it goes for it until it gets away, up a tree or out of sight, or
+            // falls, or stops being a snow leopard. Move does the biting.
+            var player = Player!;
+            if (player.IsDead || player.Animal is not SnowLeopard || !player.OnTheGround
+                || cat.Body.GlobalPosition.DistanceTo(player.GlobalPosition) > PlayerSightRange)
+            {
+                loner.HuntsPlayer = false;
+                loner.Centre = loner.Goal = cat.Body.GlobalPosition;
+                loner.Linger = 0f;
+            }
+            else
+            {
+                loner.Centre = loner.Goal = player.GlobalPosition;
+            }
+        }
         else
+        {
             Wander(loner, dt, pace: 0.4f, range: 80f);
+        }
     }
 
     /// <summary>
@@ -1096,9 +1249,12 @@ public partial class Wildlife : Node3D
     {
         foreach (var beast in group.Members)
         {
+            Bleed(beast, dt);
             if (!beast.IsDead)
             {
-                beast.Health = Mathf.Min(100f, beast.Health + HealPerSecond * dt);
+                // A wound only starts to heal once it has stopped bleeding.
+                if (beast.Bleeding <= 0f)
+                    beast.Health = Mathf.Min(100f, beast.Health + HealPerSecond * dt);
 
                 // A youngster grows to full size over a couple of minutes.
                 if (beast.Size < 1f && beast.Health >= 100f)
@@ -1133,7 +1289,11 @@ public partial class Wildlife : Node3D
         beast.HeldAt = null;
         beast.Perched = false;
         beast.Grips = 0;
+        beast.Pins = 0;
         beast.JoinsPlayer = false;
+        // Reborn, a snow leopard makes up its own mind about the player's afresh.
+        group.Refuses = null;
+        group.HuntsPlayer = false;
         beast.Stamina = 100f;
         beast.IsExhausted = false;
         beast.Size = YoungSize;
@@ -1229,6 +1389,22 @@ public partial class Wildlife : Node3D
         {
             hurry = 1f;
             keepUp = TopSpeed(beast);
+        }
+        else if (group.Kind == Kind.Loner && group.HuntsPlayer)
+        {
+            // A snow leopard fighting the player's closes in from whichever side it's on and bites whenever it's in
+            // reach: ordinary bites only, never leaping on to hold on.
+            var player = Player!;
+            var fromPlayer = (position - player.GlobalPosition) with { Y = 0f };
+            float ring = player.Stats.BodyRadius + stats.BodyRadius * beast.Size * 0.8f;
+            target = player.GlobalPosition + (fromPlayer.LengthSquared() > 0.01f ? fromPlayer.Normalized() : Vector3.Back) * ring;
+            hurry = 1f;
+            keepUp = (player.Velocity with { Y = 0f }).Length();
+            if (fromPlayer.Length() < ring + 0.8f && player.WithinBite(position))
+            {
+                player.Bitten(RivalBite * dt, beast.Animal);
+                eat = 0.6f + 0.4f * Mathf.Sin(_time * 10f);
+            }
         }
         else if (beast.Animal is PolarBear && group.Activity != Activity.Roaming)
         {
@@ -1364,6 +1540,10 @@ public partial class Wildlife : Node3D
         speed = Mathf.Min(speed, distance * 2f + keepUp);
         var wanted = distance > 0.01f ? toTarget / distance * speed : Vector3.Zero;
 
+        // Pinned down by a snow leopard, it is held flat where it is.
+        if (beast.Pinned && !beast.Animal.IsSwimming)
+            posture = Posture.Lying;
+
         // Settle down to sleep or rest once stopped; get up before going anywhere.
         beast.Animal.Settle(posture, 1f, dt);
         if (beast.Animal.IsResting)
@@ -1441,8 +1621,8 @@ public partial class Wildlife : Node3D
     private static float TopSpeed(Beast beast)
     {
         var stats = beast.Animal.Stats;
-        // With a snow leopard hanging off it, an animal can only stagger along, dragging the cat.
-        float gripped = beast.Gripped ? GrippedSlowing : 1f;
+        // With a snow leopard hanging off it, an animal can only stagger along, dragging the cat; pinned down, not at all.
+        float gripped = beast.Pinned ? 0f : beast.Gripped ? GrippedSlowing : 1f;
         if (beast.Animal.IsSwimming)
             return stats.SwimSpeed * (beast.IsExhausted ? 0.6f : 1f) * gripped;
         float speed = beast.IsExhausted ? stats.WalkSpeed : stats.SprintSpeed;
@@ -1463,6 +1643,31 @@ public partial class Wildlife : Node3D
         _groups.Where(g => g.Kind == Kind.Loner).SelectMany(g => g.Members)
             .FirstOrDefault(c => c.Animal is SnowLeopard && !c.IsDead && !c.OnTree && c.Body.GlobalPosition.DistanceTo(at) < range)
             ?.Animal;
+
+    /// <summary>
+    /// Whether the wild snow leopard <paramref name="mate"/> will pair up with the player's. It makes up its mind the
+    /// first time they meet; one that wants no mate turns on the player's cat whenever it comes close, until beaten.
+    /// </summary>
+    public bool WillMate(Animal mate)
+    {
+        var group = _beasts[mate].Group;
+        if (group.Beaten)
+            return true;
+        group.Refuses ??= _rng.Randf() < RefuseChance;
+        if (group.Refuses == true && !group.HuntsPlayer)
+        {
+            group.HuntsPlayer = true;
+            group.Fleeing = 0f;
+        }
+        return group.Refuses == false;
+    }
+
+    /// <summary>True while a wild snow leopard is fighting the player's.</summary>
+    public bool RivalFighting => _groups.Any(g => g.Kind == Kind.Loner && g.HuntsPlayer);
+
+    /// <summary>A wild snow leopard the player's has beaten in a fight, ready to pair up with it, if there is one.</summary>
+    public Animal? BeatenRival() =>
+        _groups.FirstOrDefault(g => g.Kind == Kind.Loner && g.Beaten)?.Members.FirstOrDefault(c => !c.IsDead)?.Animal;
 
     /// <summary>
     /// A wild animal leaves the wild for good to travel with the player, e.g. a snow leopard pairing up with the
@@ -1492,11 +1697,17 @@ public partial class Wildlife : Node3D
     /// <summary>True while a wild animal is alive.</summary>
     public bool IsAlive(Animal animal) => _beasts.TryGetValue(animal, out var beast) && !beast.IsDead;
 
-    /// <summary>A hunter clamps its jaws onto a wild animal and holds on, or lets go of it; several can hold on at once.</summary>
-    public void Grip(Animal prey, bool holding)
+    /// <summary>
+    /// A hunter clamps its jaws onto a wild animal and holds on, or lets go of it; several can hold on at once. One
+    /// that <paramref name="pins"/> it, something too small to ride, holds it down where it is so it can't get away.
+    /// </summary>
+    public void Grip(Animal prey, bool holding, bool pins = false)
     {
-        if (_beasts.TryGetValue(prey, out var beast))
-            beast.Grips = holding && !beast.IsDead ? beast.Grips + 1 : Mathf.Max(0, beast.Grips - 1);
+        if (!_beasts.TryGetValue(prey, out var beast))
+            return;
+        beast.Grips = holding && !beast.IsDead ? beast.Grips + 1 : Mathf.Max(0, beast.Grips - 1);
+        if (pins)
+            beast.Pins = holding && !beast.IsDead ? beast.Pins + 1 : Mathf.Max(0, beast.Pins - 1);
     }
 
     /// <summary>

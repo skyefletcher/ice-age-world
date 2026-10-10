@@ -55,6 +55,10 @@ public partial class Player
 
         _collision.Shape = new CapsuleShape3D { Radius = Stats.BodyRadius, Height = Stats.BodyHeight };
         _collision.Position = new Vector3(0, Stats.BodyHeight / 2f, 0);
+
+        // Snow leopards live on cliffs and crags, so a climber walks up slopes that would stop anything else,
+        // right up the steepest mountainsides.
+        FloorMaxAngle = Mathf.DegToRad(Stats.Can(Ability.ClimbTrees) ? 85f : 45f);
         _cameraPivot.Position = new Vector3(0, Stats.CameraHeight, 0);
 
         // A fresh animal starts at its usual camera distance; one that is growing keeps the player's zoom, pulled back with it.

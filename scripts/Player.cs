@@ -298,6 +298,18 @@ public partial class Player : CharacterBody3D
                 break;
         }
 
+        // Keep the player on the map: a climber can scale the ring of mountains round the edge, but the ground ends
+        // just beyond their tops.
+        if (Terrain is not null)
+        {
+            float edge = Terrain.HalfSize - Terrain.CellSize;
+            GlobalPosition = GlobalPosition with
+            {
+                X = Mathf.Clamp(GlobalPosition.X, -edge, edge),
+                Z = Mathf.Clamp(GlobalPosition.Z, -edge, edge),
+            };
+        }
+
         if (GlobalPosition.Y < -50f)
             Respawn();
         HoldKill();
@@ -327,8 +339,9 @@ public partial class Player : CharacterBody3D
         if (IsFeeding || resting)
             direction = Vector3.Zero;
 
-        // A climber that walks into a tree trunk starts up it.
-        if (direction != Vector3.Zero && Stats.Can(Ability.ClimbTrees) && IsOnFloor() && !IsSwimming && TryStartClimb(direction))
+        // A climber that leaps at a tree trunk grabs hold and starts up it, as snow leopards spring onto the bole
+        // rather than walking up to it.
+        if (_leapAtTree && Stats.Can(Ability.ClimbTrees) && !IsOnFloor() && !IsSwimming && TryStartClimb(direction))
             return;
 
         bool jumping = !IsFeeding && !resting && Input.IsActionJustPressed(InputSetup.Jump);
@@ -357,6 +370,7 @@ public partial class Player : CharacterBody3D
             velocity.Y = Mathf.Sqrt(2f * Animal.Gravity * Stats.JumpHeight);
             velocity += direction * Stats.JumpBoost;
             airborne = true;
+            _leapAtTree = true;
         }
 
         bool sprinting = Input.IsActionPressed(InputSetup.Sprint) && direction != Vector3.Zero && !IsSwimming && !IsWeak && !IsExhausted;
@@ -400,6 +414,8 @@ public partial class Player : CharacterBody3D
         MoveAndSlide();
         if (inAir && IsOnFloor())
             TouchDown(-velocity.Y);
+        if (IsOnFloor() || IsSwimming)
+            _leapAtTree = false;
 
         float groundSpeed = horizontal.Length();
         float stride;
@@ -436,13 +452,13 @@ public partial class Player : CharacterBody3D
 
             if (Water?.SurfaceAt(Mouth) is not null)
             {
-                ActionPrompt = "Press E to drink";
+                ActionPrompt = "Press E or click to drink";
                 if (Input.IsActionJustPressed(InputSetup.Eat))
                     StartFeeding(Feeding.Drinking, DrinkDuration);
             }
             else if (grass >= 0)
             {
-                ActionPrompt = "Press E to eat grass";
+                ActionPrompt = "Press E or click to eat grass";
                 if (Input.IsActionJustPressed(InputSetup.Eat))
                 {
                     StartFeeding(Feeding.Eating, EatDuration);

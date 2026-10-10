@@ -3,7 +3,7 @@ using Godot;
 namespace IceAgeWorld;
 
 /// <summary>
-/// Tree climbing, for animals that can climb, anywhere on the tree. Walking into a trunk starts up it: the animal
+/// Tree climbing, for animals that can climb, anywhere on the tree. Leaping at a trunk starts up it: the animal
 /// clings on facing the bark, W climbs (which costs stamina), S climbs back down and A / D work round the trunk.
 /// Beside any sturdy branch, E steps out onto it, and W / S walk out along it and back, the way snow leopards lie up
 /// on limbs. Near the top of the trunk it scrambles up through the crown and stands on the very top of the tree, a
@@ -42,11 +42,16 @@ public partial class Player
     /// <summary>True while facing out towards the branch tip, false while facing back to the trunk.</summary>
     private bool _facingOut;
 
+    /// <summary>
+    /// True from a jump off the ground until the animal lands, while it can grab a trunk it hits. Leaping out of a tree
+    /// doesn't count, so the cat doesn't catch hold of the tree it has just jumped from.
+    /// </summary>
+    private bool _leapAtTree;
 
     /// <summary>Climbing speed up the trunk: agile animals scramble up fast, but slower hauling a kill.</summary>
     private float ClimbSpeed => (1f + Stats.Scores.Agility * 0.25f) * (IsCarrying ? CarrySpeed : 1f);
 
-    /// <summary>Starts climbing if the animal is walking straight into a tree trunk.</summary>
+    /// <summary>Starts climbing if the animal is heading straight into a tree trunk.</summary>
     private bool TryStartClimb(Vector3 direction)
     {
         if (Terrain is null || IsExhausted || IsFeeding)
@@ -54,10 +59,14 @@ public partial class Player
         if (Terrain.TrunkNear(GlobalPosition, Stats.BodyRadius + ClimbReach) is not { } tree)
             return false;
 
+        // Mid-leap with no key held, the way it's flying counts.
+        if (direction == Vector3.Zero)
+            direction = (Velocity with { Y = 0f }).Normalized();
         var toTrunk = (tree.Transform.Origin - GlobalPosition) with { Y = 0f };
         if (direction.Dot(toTrunk.Normalized()) < 0.7f)
             return false;
 
+        _leapAtTree = false;
         _tree = tree;
         _mode = Mode.Climbing;
         _climbHeight = Mathf.Max(0f, GlobalPosition.Y - tree.Transform.Origin.Y);

@@ -32,10 +32,9 @@ public partial class Herd : Node3D
     public bool IsFamily { get; init; }
 
     /// <summary>
-    /// The most a family grows to, mate and leader not counted among the cubs: every snow leopard is costly to draw, and
-    /// real ones leave their mother at about two years old rather than staying on for good.
+    /// The most cubs a family has, mate and leader not counted: a snow leopard litter is usually two or three cubs.
     /// </summary>
-    private const int MaxFamily = 8;
+    private const int MaxFamily = 3;
 
     /// <summary>What the leader calls its companions in news about them.</summary>
     public string Word => IsFamily ? "family" : _isHerd ? "herd" : "pack";
@@ -297,7 +296,8 @@ public partial class Herd : Node3D
         {
             member.Size = Mathf.Min(1f, member.Size + (1f - YoungSize) / GrowUpSeconds * dt);
             member.Body.Scale = Vector3.One * member.Size;
-            if (member.Size >= 1f && IsFamily && _members.Count <= MaxFamily)
+            // Everyone but the mate is a cub.
+            if (member.Size >= 1f && IsFamily && _members.Count - 1 < MaxFamily)
             {
                 Recruit();
                 Leader.Announce($"Your cub is all grown up, and a new {Leader.Animal.YoungName.ToLower()} is born!");

@@ -3,7 +3,7 @@ using Godot;
 namespace IceAgeWorld;
 
 /// <summary>
-/// Hunting, for animals that hunt. Close to a wild animal, F (or a click) pounces and bites it. Beside a kill, E eats
+/// Hunting, for animals that hunt. Close to a wild animal, F pounces and bites it. Beside a kill, E eats
 /// from it and F picks it up, if it's light enough: the cat drags it along in its jaws, slowed by the weight, and can
 /// climb a tree with it. Up on a branch or the treetop, F puts it down there, and E eats from it in peace, out of reach
 /// of anything on the ground, the way big cats cache their kills in trees. It can also eat straight from its jaws.
@@ -95,7 +95,7 @@ public partial class Player
 
         string name = carcass.DisplayName.ToLower();
         bool light = Wildlife.CanCarry(carcass, Stats.BodyRadius * Stats.BodyHeight * CarryStrength);
-        Prompt(light ? $"E to eat the {name}, F to pick it up" : $"E to eat the {name} (too heavy to carry)", upTree);
+        Prompt(light ? $"E or click to eat the {name}, F to pick it up" : $"E or click to eat the {name} (too heavy to carry)", upTree);
         if (Input.IsActionJustPressed(InputSetup.Eat))
         {
             EatFrom(carcass);
@@ -120,8 +120,8 @@ public partial class Player
         string name = prey.DisplayName.ToLower();
         bool grip = Stats.Can(Ability.Grip);
         ActionPrompt = IsExhausted ? "Too winded to pounce"
-            : grip ? $"F or click to attack the {name}, G or right-click to leap on and hold it"
-            : $"Press F or click to attack the {name}";
+            : grip ? $"F to attack the {name}, G to leap on and hold it"
+            : $"Press F to attack the {name}";
         if (IsExhausted)
             return;
         if (grip && Input.IsActionJustPressed(InputSetup.Grip))
@@ -166,7 +166,7 @@ public partial class Player
             return;
         }
 
-        Prompt($"E to eat the {held.DisplayName.ToLower()}, F to put it down", upTree);
+        Prompt($"E or click to eat the {held.DisplayName.ToLower()}, F to put it down", upTree);
         if (Input.IsActionJustPressed(InputSetup.Eat))
             EatFrom(held);
         else if (Input.IsActionJustPressed(InputSetup.Attack))
@@ -214,7 +214,7 @@ public partial class Player
         if (Wildlife.PreyNear(talons, TalonReach * Size) is not { } prey)
             return;
 
-        ActionPrompt = $"Press F or click to snatch the {prey.DisplayName.ToLower()}";
+        ActionPrompt = $"Press F to snatch the {prey.DisplayName.ToLower()}";
         if (!Input.IsActionJustPressed(InputSetup.Attack))
             return;
 

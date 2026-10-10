@@ -7,7 +7,7 @@ namespace IceAgeWorld;
 /// tree, a cat twists upright in the air within a body length, reaches its forepaws down for the ground and, in a long
 /// fall, spreads its legs out wide to slow itself, as real cats do. It lands forepaws first and sinks into a crouch
 /// that soaks up the blow, the deeper the harder it hits. A drop higher than the animal can take hurts it, and a long
-/// enough one kills it.
+/// enough one kills it, unless it is a cat or a bird (see <see cref="AnimalStats.FallDamage"/>).
 /// </summary>
 public partial class Player
 {

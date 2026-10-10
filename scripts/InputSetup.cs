@@ -25,17 +25,19 @@ public static class InputSetup
 
     public static void Register()
     {
-        Add(MoveForward, Key.W, Key.Up);
+        // Holding the right mouse button walks forward, so the animal can be steered with the mouse alone.
+        Add(MoveForward, new InputEventKey { PhysicalKeycode = Key.W }, new InputEventKey { PhysicalKeycode = Key.Up },
+            new InputEventMouseButton { ButtonIndex = MouseButton.Right });
         Add(MoveBack, Key.S, Key.Down);
         Add(MoveLeft, Key.A, Key.Left);
         Add(MoveRight, Key.D, Key.Right);
         Add(Sprint, Key.Shift);
         Add(Jump, Key.Space);
-        Add(Eat, Key.E);
-        // A pounce goes on F, or a click, since the mouse is already in hand to look about.
-        Add(Attack, new InputEventKey { PhysicalKeycode = Key.F }, new InputEventMouseButton { ButtonIndex = MouseButton.Left });
-        // The snow leopard's leap-and-hold goes on G, or the other mouse button.
-        Add(Grip, new InputEventKey { PhysicalKeycode = Key.G }, new InputEventMouseButton { ButtonIndex = MouseButton.Right });
+        // Eating goes on E, or a left click: the other half of playing with the mouse alone.
+        Add(Eat, new InputEventKey { PhysicalKeycode = Key.E }, new InputEventMouseButton { ButtonIndex = MouseButton.Left });
+        Add(Attack, Key.F);
+        // The snow leopard's leap-and-hold.
+        Add(Grip, Key.G);
         Add(Sit, Key.C);
         Add(LieDown, Key.X);
         Add(SwitchAnimal, Key.Tab);

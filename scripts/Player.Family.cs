@@ -7,7 +7,8 @@ namespace IceAgeWorld;
 /// before going their separate ways. Here the player's snow leopard, once grown up, stays beside the wild one for ten
 /// seconds and the two pair up for good: they have a cub, and the mate and cub travel with the player from then on as
 /// its family (see <see cref="Herd"/>). They hunt and feed with it, turn on anything that bites it, wolf pack or polar
-/// bear, and whenever the cub grows up another is born.
+/// bear, and whenever the cub grows up another is born, up to three. Sometimes the wild one wants no mate and fights
+/// the player's cat off instead, with ordinary bites; beaten, it gives in and pairs up.
 /// </summary>
 public partial class Player
 {
@@ -26,8 +27,24 @@ public partial class Player
     private void Court(float dt)
     {
         Courtship = null;
-        if (Animal is not SnowLeopard || _mode != Mode.Ground || IsGripping || !_herds.TryGetValue(Animal, out var family)
-            || family.Any || Wildlife?.MateNear(GlobalPosition, CourtshipRange) is not { } mate)
+        if (Animal is not SnowLeopard || !_herds.TryGetValue(Animal, out var family) || family.Any || Wildlife is null)
+        {
+            _courtship = 0f;
+            return;
+        }
+
+        // Beaten in a fight, the wild snow leopard gives in and pairs up after all.
+        if (Wildlife.BeatenRival() is { } beaten)
+        {
+            LetGo();
+            _courtship = 0f;
+            PairUp(family, beaten, "You won the fight!");
+            return;
+        }
+        if (Wildlife.RivalFighting)
+            Courtship = "The snow leopard doesn't want a mate and is fighting you! Beat it and it will pair up with you";
+
+        if (_mode != Mode.Ground || IsGripping || Wildlife.MateNear(GlobalPosition, CourtshipRange) is not { } mate)
         {
             _courtship = 0f;
             return;
@@ -41,6 +58,14 @@ public partial class Player
             return;
         }
 
+        // Sometimes it wants no mate, and turns on the player's cat instead.
+        if (!Wildlife.WillMate(mate))
+        {
+            _courtship = 0f;
+            Courtship = "The snow leopard doesn't want a mate and is fighting you! Beat it and it will pair up with you";
+            return;
+        }
+
         _courtship += dt;
         if (_courtship < CourtshipSeconds)
         {
@@ -49,8 +74,14 @@ public partial class Player
         }
 
         _courtship = 0f;
-        family.Recruit(1f, Wildlife.Leave(mate));
+        PairUp(family, mate, "");
+    }
+
+    /// <summary>The wild snow leopard leaves the wild to join the player's family, and they have their first cub.</summary>
+    private void PairUp(Herd family, Animal mate, string news)
+    {
+        family.Recruit(1f, Wildlife!.Leave(mate));
         family.Recruit();
-        Announce($"You have a {Animal.YoungName.ToLower()}! Your mate and cub will hunt with you.", 6f);
+        Announce($"{news} You have a {Animal.YoungName.ToLower()}! Your mate and cub will hunt with you.".TrimStart(), 6f);
     }
 }
