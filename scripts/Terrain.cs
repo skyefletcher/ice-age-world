@@ -67,7 +67,7 @@ public readonly record struct Tree(Transform3D Transform, TreeBuilder.Shape Shap
 
 /// <summary>
 /// Procedurally generates the ice-age landscape: a noise-based heightmap mesh, matching collision,
-/// a ring of mountains around the edge to keep players in, a few great snowy mountains rising out of the steppe, with
+/// a ring of mountains around the edge to keep players in, a couple of ranges of rocky hills rising out of the steppe, with
 /// caves dug into their flanks (see Terrain.Caves.cs), lake basins and patches of mixed, randomised forest.
 /// </summary>
 public partial class Terrain : Node3D
@@ -92,13 +92,16 @@ public partial class Terrain : Node3D
     [Export] public float BigLakeShore { get; set; } = 20f;
 
     /// <summary>
-    /// How many great mountains rise out of the steppe inside the world, and how tall and broad they are: craggy, snowy
-    /// massifs towering over the hills, like the ranges that stood above the ice-age mammoth steppe.
+    /// How many mountain ranges rise out of the steppe inside the world, how many rocky hills crowd together in each and
+    /// how far from its heart they spread, and how tall and broad the hills are: rounded, ice-worn heights strewn with
+    /// tors, like the granite uplands that stood above the ice-age mammoth steppe.
     /// </summary>
-    [Export] public int MountainCount { get; set; } = 4;
+    [Export] public int RangeCount { get; set; } = 2;
 
-    [Export] public Vector2 MountainHeights { get; set; } = new(60f, 95f);
-    [Export] public Vector2 MountainRadii { get; set; } = new(85f, 125f);
+    [Export] public int HillsPerRange { get; set; } = 8;
+    [Export] public float RangeSpread { get; set; } = 95f;
+    [Export] public Vector2 MountainHeights { get; set; } = new(30f, 55f);
+    [Export] public Vector2 MountainRadii { get; set; } = new(50f, 80f);
 
     /// <summary>Depth of water at the centre of each lake.</summary>
     [Export] public float LakeDepth { get; set; } = 5f;
@@ -285,7 +288,7 @@ public partial class Terrain : Node3D
         float rock = 1f - Mathf.SmoothStep(0.65f, 0.85f, normal.Y);
         // High on the mountains the wind scours the snow off the ridges and steeper faces, baring dark crags.
         float crags = Mathf.SmoothStep(HeightScale * 1.1f, HeightScale * 1.6f, h) * (1f - Mathf.SmoothStep(0.86f, 0.97f, normal.Y));
-        rock = Mathf.Max(rock, crags);
+        rock = Mathf.Max(rock, Mathf.Max(crags, HillRock(x, z)));
         float mud = 1f - Mathf.SmoothStep(1f, 3.5f, DistanceFromWater(x, z));
         return Steppe.Lerp(Snow, snow).Lerp(Rock, rock).Lerp(Mud, mud);
     }

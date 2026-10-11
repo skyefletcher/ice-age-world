@@ -28,6 +28,9 @@ public partial class Terrain
     private const float ChamberRadius = 13f;
     private const float ChamberHeight = 13f;
 
+    /// <summary>How many caves are dug into the hills, all told.</summary>
+    private const int CaveCount = 4;
+
     /// <summary>The thinnest the rock over a cave can be; anywhere thinner, the roof has fallen in and lets in the sky.</summary>
     private const float RoofThickness = 1.5f;
 
@@ -107,7 +110,7 @@ public partial class Terrain
     }
 
     /// <summary>
-    /// Digs one cave into the foot of each mountain, works out where its roof is thick enough to stand, and lowers the
+    /// Digs a cave into the foot of each of the tallest hills, works out where its roof is thick enough to stand, and lowers the
     /// ground underfoot to its floor. The top of the land over a roof stays where it was, so the mountainside above is
     /// whole and can be walked on; where the roof is too thin, near the mouth, the cave opens into a rocky cleft.
     /// </summary>
@@ -122,8 +125,11 @@ public partial class Terrain
 
         var rng = new RandomNumberGenerator { Seed = (ulong)Seed + 6 };
         _caves.Clear();
-        foreach (var mountain in _mountains)
-            if (PlanCave(mountain, rng) is { } cave)
+        // The tallest hills have the thickest rock to hollow out, so caves go into them first.
+        var hills = new List<Mountain>(_mountains);
+        hills.Sort((a, b) => b.Peak.CompareTo(a.Peak));
+        foreach (var mountain in hills)
+            if (_caves.Count < CaveCount && PlanCave(mountain, rng) is { } cave)
                 _caves.Add(cave);
 
         foreach (var cave in _caves)

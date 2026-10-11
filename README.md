@@ -42,9 +42,9 @@ godot --path .
 
 - `scenes/Main.tscn` — the world: sky, sun, terrain, wildlife, player and HUD
 - `scenes/Player.tscn` — the player animal and its camera
-- `scripts/Terrain.cs` — generates the landscape (with great snowy mountains, caves, giant old-growth trees, up to about 40 m tall), lake basins (and one big lake in the north-east corner), collision and mixed forest patches from noise, and remembers where each tree trunk, branch and treetop is for climbers
-- `scripts/Terrain.Mountains.cs` — places the great mountains that rise out of the steppe, gentle in the foothills and craggy, ridged and snow-capped higher up
-- `scripts/Terrain.Caves.cs` — digs a cave into the foot of each mountain: a winding tunnel under a rock roof you can walk on, opening into a big domed chamber at the back, dim inside, and marked on the map
+- `scripts/Terrain.cs` — generates the landscape (with ranges of rocky hills, caves, giant old-growth trees, up to about 40 m tall), lake basins (and one big lake in the north-east corner), collision and mixed forest patches from noise, and remembers where each tree trunk, branch and treetop is for climbers
+- `scripts/Terrain.Mountains.cs` — heaps rounded, rocky hills together into a couple of ranges, their slopes running into one another in saddles, stepped in rough ledges, scored by gullies and strewn with tors, with bare rock showing through the snow
+- `scripts/Terrain.Caves.cs` — digs caves into the foot of the tallest hills: a winding tunnel under a rock roof you can walk on, opening into a big domed chamber at the back, dim inside, and marked on the map
 - `scripts/TreeBuilder.cs` — builds randomised meshes for five kinds of tree (spruce, Scots pine, golden larch, white birch and narrow fir), each with lots of branches held out level, so no two trees look alike, remembering which branches are sturdy enough to walk along
 - `scripts/Water.cs` — lake water surfaces, and where the water is for drinking and swimming
 - `scripts/Animal.cs` — base class for playable animals: their 1–10 scores (jump height and length, land and water speed, agility, stamina) and the speeds, jumps, turning and stamina worked out from them, their abilities (climbing, flying, pack, herd), size, diet and camera, how far they are sitting, lying or gone limp in death, and shared mesh-building and posing helpers
