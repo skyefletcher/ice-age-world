@@ -8,7 +8,20 @@ namespace IceAgeWorld;
 /// A round lake carved into the terrain. <see cref="Radius"/> is where the water meets the shore, and <see cref="Shore"/>
 /// how wide the bank is that slopes back up to the land around it.
 /// </summary>
-public readonly record struct Lake(Vector2 Centre, float Radius, float Surface, float Shore = Terrain.ShoreWidth);
+public readonly record struct Lake(Vector2 Centre, float Radius, float Surface, float Shore = Terrain.ShoreWidth)
+{
+    /// <summary>
+    /// The heart of the open water, where swimmers make for: the centre for a lake, but out in the quarter circle of the
+    /// ocean that shows inside the world, whose true centre is the world's corner, under the mountains.
+    /// </summary>
+    public Vector2 Middle { get => _middle ?? Centre; init => _middle = value; }
+
+    /// <summary>How far round <see cref="Middle"/> it is open water every way.</summary>
+    public float Reach { get => _reach ?? Radius; init => _reach = value; }
+
+    private readonly Vector2? _middle;
+    private readonly float? _reach;
+}
 
 /// <summary>
 /// A placed tree, for animals that climb: where its trunk runs, where its branches reach and where its top is.
@@ -87,12 +100,22 @@ public partial class Terrain : Node3D
     [Export] public int LakeCount { get; set; } = 9;
 
     /// <summary>
-    /// Radius of the one big lake that fills the north-east corner of the world, big enough to swim a long way out into,
-    /// with a wide, gentle shore so it lies in a broad basin rather than a pit.
+    /// Radius of the ocean that fills the north-east corner of the world. Its centre is the corner itself, so the
+    /// quarter of it inside the world spreads out as a quarter circle, walled in on its two outer sides by the mountains
+    /// round the edge, which rise straight out of the sea. It has a wide, gentle shore, so it lies in a broad basin.
     /// </summary>
-    [Export] public float BigLakeRadius { get; set; } = 220f;
+    [Export] public float BigLakeRadius { get; set; } = 600f;
 
-    [Export] public float BigLakeShore { get; set; } = 30f;
+    [Export] public float BigLakeShore { get; set; } = 40f;
+
+    /// <summary>
+    /// How deep the ocean is out in the open sea. Past a narrow strip of shallows along the beach the sea floor drops
+    /// away steeply into the deep, as it does off a rocky coast, so a few strides out an animal is swimming.
+    /// </summary>
+    [Export] public float OceanDepth { get; set; } = 40f;
+
+    /// <summary>How far out from the corner the ocean is at its full depth, as a share of its radius; beyond, it shelves up to the beach.</summary>
+    private const float OceanShelf = 0.93f;
 
     /// <summary>
     /// How many mountain ranges rise out of the steppe inside the world, how many rocky hills crowd together in each and
@@ -114,6 +137,9 @@ public partial class Terrain : Node3D
 
     /// <summary>How deep the wall of mountains round the edge of the world is, however big the world.</summary>
     public const float MountainWidth = 38f;
+
+    /// <summary>How high the wall of mountains round the edge of the world rises above the land inside it.</summary>
+    private const float EdgeWallHeight = 50f;
 
     /// <summary>Width of the square tiles of forest that are drawn, or skipped, together.</summary>
     private const float TreeTileSize = 96f;
@@ -272,6 +298,16 @@ public partial class Terrain : Node3D
         return nearest;
     }
 
+    /// <summary>The lake whose water line is nearest a point.</summary>
+    private Lake NearestLake(float x, float z)
+    {
+        var nearest = _lakes[0];
+        foreach (var lake in _lakes)
+            if (new Vector2(x, z).DistanceTo(lake.Centre) - lake.Radius < new Vector2(x, z).DistanceTo(nearest.Centre) - nearest.Radius)
+                nearest = lake;
+        return nearest;
+    }
+
     private float HeightAt(int x, int z) => At(_heights, x, z);
 
     private float At(float[] heights, int x, int z) =>
@@ -302,7 +338,8 @@ public partial class Terrain : Node3D
             drop = Mathf.Max(drop, Mathf.Abs(GetHeight(x + dx, z + dz) - GetHeight(x - dx, z - dz)));
         }
         rock = Mathf.Max(rock, Mathf.SmoothStep(8f, 12f, drop));
-        float mud = 1f - Mathf.SmoothStep(1f, 3.5f, DistanceFromWater(x, z));
+        // Mud only down by the water: the mountains standing in the ocean keep their rock and snow.
+        float mud = (1f - Mathf.SmoothStep(1f, 3.5f, DistanceFromWater(x, z))) * (1f - Mathf.SmoothStep(2f, 5f, h - NearestLake(x, z).Surface));
         return Steppe.Lerp(Snow, snow).Lerp(Rock, rock).Lerp(Mud, mud);
     }
 
@@ -336,15 +373,17 @@ public partial class Terrain : Node3D
             h *= Mathf.Lerp(0.3f, 1f, Mathf.SmoothStep(0f, 60f, fromCentre));
             h += MountainHeight(wx, wz) + CliffHeightAt(wx, wz);
 
-            // Steep mountains near the edge form a natural world boundary.
-            float toEdge = HalfSize - Mathf.Max(Mathf.Abs(wx), Mathf.Abs(wz));
-            if (toEdge < MountainWidth)
-                h += Mathf.Pow(1f - toEdge / MountainWidth, 2f) * 50f;
-
-            _heights[z * Resolution + x] = h;
+            _heights[z * Resolution + x] = h + EdgeWall(wx, wz);
         }
 
         CarveLakes();
+    }
+
+    /// <summary>How high the steep mountains near the edge, which form a natural world boundary, raise the land at a point.</summary>
+    private float EdgeWall(float x, float z)
+    {
+        float toEdge = HalfSize - Mathf.Max(Mathf.Abs(x), Mathf.Abs(z));
+        return toEdge < MountainWidth ? Mathf.Pow(1f - toEdge / MountainWidth, 2f) * EdgeWallHeight : 0f;
     }
 
     private void CarveLakes()
@@ -352,11 +391,17 @@ public partial class Terrain : Node3D
         var rng = new RandomNumberGenerator { Seed = (ulong)Seed + 1 };
         _lakes.Clear();
 
-        // The big lake goes in first, filling the north-east corner just inside the mountains, so the small ones keep clear of it.
+        // The ocean goes in first, filling the north-east corner, so the small lakes keep clear of it. The mountains
+        // round the edge stay standing, rising out of the sea floor.
         var bigCentre = BigLakeCentre;
-        var big = new Lake(bigCentre, BigLakeRadius, WaterLine(bigCentre, BigLakeRadius, BigLakeShore), BigLakeShore);
+        var inward = new Vector2(-1f, 1f).Normalized();
+        var big = new Lake(bigCentre, BigLakeRadius, WaterLine(bigCentre, BigLakeRadius, BigLakeShore), BigLakeShore)
+        {
+            Middle = bigCentre + inward * BigLakeRadius * 0.5f,
+            Reach = BigLakeRadius * 0.3f,
+        };
         _lakes.Add(big);
-        Carve(big);
+        Carve(big, OceanDepth, shelf: OceanShelf, underWall: true);
 
         int placed = 0;
         for (int attempt = 0; placed < LakeCount && attempt < 500; attempt++)
@@ -380,23 +425,17 @@ public partial class Terrain : Node3D
 
             var lake = new Lake(centre, radius, WaterLine(centre, radius, ShoreWidth));
             _lakes.Add(lake);
-            Carve(lake);
+            Carve(lake, LakeDepth);
             placed++;
         }
 
-        // The lake by the spawn point comes first, and the big lake second, so the otter rafts live on those two.
+        // The lake by the spawn point comes first, and the ocean second, so the otter rafts live on those two.
         _lakes.RemoveAt(0);
         _lakes.Insert(Mathf.Min(1, _lakes.Count), big);
     }
 
-    private Vector2 BigLakeCentre
-    {
-        get
-        {
-            float corner = HalfSize - MountainWidth - BigLakeRadius - BigLakeShore;
-            return new Vector2(corner, -corner);
-        }
-    }
+    /// <summary>The ocean's centre: the north-east corner of the world.</summary>
+    private Vector2 BigLakeCentre => new(HalfSize, -HalfSize);
 
     /// <summary>
     /// Where to set a lake's water: just below the lowest point of the bank round it, so it never spills. A big lake
@@ -415,8 +454,14 @@ public partial class Terrain : Node3D
         return lowest - 0.4f;
     }
 
-    /// <summary>Digs a bowl below the water line and blends a sloping bank back up to the original ground.</summary>
-    private void Carve(Lake lake)
+    /// <summary>
+    /// Digs a bowl <paramref name="depth"/> deep below the water line and blends a sloping bank back up to the original
+    /// ground. The bowl is deepest at the centre, or, given a <paramref name="shelf"/>, over that fraction of the radius,
+    /// shelving up from there to the shore. With <paramref name="underWall"/> the mountains round the edge of the world
+    /// are left standing in the water rather than dug away, rising from the sea floor as high above the water as they
+    /// stand above the land.
+    /// </summary>
+    private void Carve(Lake lake, float depth, float shelf = 0f, bool underWall = false)
     {
         float reach = lake.Radius + lake.Shore;
         int minX = Mathf.Max(0, Mathf.FloorToInt((lake.Centre.X - reach + HalfSize) / CellSize));
@@ -433,17 +478,19 @@ public partial class Terrain : Node3D
                 continue;
 
             int i = z * Resolution + x;
-            float original = _heights[i];
+            float wall = underWall ? EdgeWall(point.X, point.Y) : 0f;
+            float original = _heights[i] - wall;
             float edge = lake.Surface - 0.3f;
 
             if (d < lake.Radius)
             {
-                float bowl = edge - (LakeDepth - 0.3f) * (1f - Mathf.SmoothStep(0f, lake.Radius, d));
-                _heights[i] = Mathf.Min(original, bowl);
+                float bowl = edge - (depth - 0.3f) * (1f - Mathf.SmoothStep(lake.Radius * shelf, lake.Radius, d));
+                float floor = Mathf.Min(original, bowl);
+                _heights[i] = floor + wall * (1f + Mathf.Max(0f, edge - floor) / EdgeWallHeight);
             }
             else
             {
-                _heights[i] = Mathf.Lerp(edge, original, Mathf.SmoothStep(lake.Radius, reach, d));
+                _heights[i] = Mathf.Lerp(edge, original, Mathf.SmoothStep(lake.Radius, reach, d)) + wall;
             }
         }
     }

@@ -385,7 +385,7 @@ public partial class Wildlife : Node3D
         {
             var lake = terrain.Lakes[r % terrain.Lakes.Count];
             var raft = new Group { Kind = Kind.Raft, Spacing = 0.9f, Lake = lake };
-            raft.Centre = raft.Goal = new Vector3(lake.Centre.X, lake.Surface, lake.Centre.Y);
+            raft.Centre = raft.Goal = new Vector3(lake.Middle.X, lake.Surface, lake.Middle.Y);
             for (int i = 0; i < OttersPerRaft; i++)
             {
                 var otter = Add(new SeaOtter(), raft, RaftSlot(i), 1f - 0.08f * (i % 2));
@@ -440,7 +440,7 @@ public partial class Wildlife : Node3D
             _groups.Add(loner);
         }
 
-        // Polar bears live along cold coasts, so this one keeps to the shores of the big lake.
+        // Polar bears live along cold coasts, so this one keeps to the shores of the ocean.
         if (terrain.Lakes.Count > 1)
         {
             var big = terrain.Lakes[1];
@@ -1265,14 +1265,14 @@ public partial class Wildlife : Node3D
         WatchForPlayer(raft);
         WatchForBears(raft);
         var lake = raft.Lake;
-        var middle = new Vector3(lake.Centre.X, lake.Surface, lake.Centre.Y);
+        var middle = new Vector3(lake.Middle.X, lake.Surface, lake.Middle.Y);
 
         raft.Fleeing = Mathf.Max(0f, raft.Fleeing - dt);
         if (raft.Fleeing > 0f)
         {
             // Out to the far side of the lake from the danger.
             var away = ((middle - raft.FleeFrom) with { Y = 0f }).Normalized();
-            raft.Goal = middle + away * lake.Radius * 0.5f;
+            raft.Goal = middle + away * lake.Reach * 0.5f;
             raft.Ashore = false;
             raft.Linger = 0f;
             var toSafety = (raft.Goal - raft.Centre) with { Y = 0f };
@@ -1293,7 +1293,25 @@ public partial class Wildlife : Node3D
                 float angle = _rng.RandfRange(0f, Mathf.Tau);
                 var direction = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
                 raft.Ashore = _rng.Randf() < 0.35f;
-                raft.Goal = middle + direction * (raft.Ashore ? lake.Radius + 2.5f : _rng.RandfRange(0f, lake.Radius * 0.6f));
+                raft.Goal = middle + direction * _rng.RandfRange(0f, lake.Reach * 0.6f);
+
+                // The bank is just beyond the water line, round the lake's true centre. Round the ocean much of that
+                // lies under the mountains or beyond the world, so look for a stretch of beach to haul out on.
+                for (int attempt = 0; raft.Ashore && attempt < 20; attempt++)
+                {
+                    float a = _rng.RandfRange(0f, Mathf.Tau);
+                    var bank = new Vector3(lake.Centre.X, lake.Surface, lake.Centre.Y)
+                        + new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a)) * (lake.Radius + 2.5f);
+                    float limit = _terrain.HalfSize - Terrain.MountainWidth;
+                    if (Mathf.Abs(bank.X) < limit && Mathf.Abs(bank.Z) < limit
+                        && _terrain.GetHeight(bank.X, bank.Z) < lake.Surface + 2f)
+                    {
+                        raft.Goal = bank;
+                        break;
+                    }
+                    if (attempt == 19)
+                        raft.Ashore = false;
+                }
             }
             return;
         }
