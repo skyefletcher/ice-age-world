@@ -26,7 +26,7 @@ godot --path .
 | Space | Jump; eagle: take off, hold to flap and climb; snow leopard: leap onto a tree to climb it, or out of one |
 | Walk uphill | Snow leopard: climbs any slope, right up the steepest mountainsides |
 | Jump at a tree | Snow leopard: grab hold and climb it. W / S climb up or down (all the way to the top), A / D go round the trunk, E steps out onto a branch beside you, then W / S walk along it |
-| E / left click | Eat grass or drink water; snow leopard, wolf, eagle or polar bear: eat from a kill, on the ground or up a tree (when the prompt shows) |
+| E / left click | Start eating grass or drinking water; snow leopard, wolf, eagle or polar bear: start eating from a kill, on the ground or up a tree (when the prompt shows). The animal keeps feeding until you press it again or the food runs out |
 | F | Snow leopard, wolf, eagle or polar bear: pounce on a wild animal close in front and bite it; beside a kill, pick it up to carry (the leopard even up a tree); press again to put it down. Eagle in flight: skim low over a hare (or an otter) to snatch it in your talons and carry it off, then land to eat it (when the prompt shows) |
 | G | Snow leopard: leap onto a wild animal close in front and clamp your jaws on, up on its back if it's big enough to ride (a reindeer or bigger), where it can only stagger along under you, or pinned flat to the ground from the side if not (a wolf, otter or hare), so it can't get away. You hold on, doing far more damage than a bite, until it falls, you run out of stamina, or you press G or Space to let go. Once you let go, the wound keeps bleeding for a while, and it keeps losing health until the bleeding stops |
 | C | Sit down; press again (or move) to get up |

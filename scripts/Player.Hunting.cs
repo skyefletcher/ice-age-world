@@ -12,11 +12,11 @@ namespace IceAgeWorld;
 /// </summary>
 public partial class Player
 {
-    /// <summary>Hunger restored by one mouthful of meat, richer than grass.</summary>
-    [Export] public float MeatPerMouthful { get; set; } = 20f;
+    /// <summary>Hunger restored by one mouthful of meat, richer than grass, though it still takes a long feed to fill up.</summary>
+    [Export] public float MeatPerMouthful { get; set; } = 8f;
 
     /// <summary>How much of a carcass of unit bulk one mouthful eats: an otter is a couple of mouthfuls, a mammoth a feast.</summary>
-    [Export] public float MeatShare { get; set; } = 0.06f;
+    [Export] public float MeatShare { get; set; } = 0.024f;
 
     /// <summary>
     /// How much a hunter's bite takes from prey of unit bulk (see <see cref="Wildlife.Bite"/>): enough to kill an otter

@@ -29,11 +29,11 @@ public partial class Player : CharacterBody3D
     /// <summary>How much faster hunger and thirst drain while running, swimming, flapping or climbing.</summary>
     [Export] public float ExertionDrainMultiplier { get; set; } = 2f;
 
-    /// <summary>Hunger restored by one mouthful of grass.</summary>
-    [Export] public float FoodPerMouthful { get; set; } = 12f;
+    /// <summary>Hunger restored by one mouthful of grass: grass is poor food, so it takes a lot of cropping to fill up.</summary>
+    [Export] public float FoodPerMouthful { get; set; } = 5f;
 
-    /// <summary>Thirst restored by one full drink.</summary>
-    [Export] public float WaterPerDrink { get; set; } = 40f;
+    /// <summary>Thirst restored by one full drink: several drinks, a good long while at the water, to fill up.</summary>
+    [Export] public float WaterPerDrink { get; set; } = 15f;
 
     /// <summary>Seconds to sit or lie down, or to get up again.</summary>
     [Export] public float PostureChangeSeconds { get; set; } = 1f;
@@ -120,6 +120,12 @@ public partial class Player : CharacterBody3D
     private float _feedTimer;
     private float _feedDuration;
     private int _grassTarget = -1;
+
+    /// <summary>True once E has been pressed to stop feeding: the head comes up and no more mouthfuls follow.</summary>
+    private bool _stopFeeding;
+
+    /// <summary>True once this mouthful's meat has been torn off the carcass.</summary>
+    private bool _bitten;
 
     /// <summary>0..1 how far the head is dipped to eat or drink, passed to the model each frame.</summary>
     private float _headDip;
@@ -441,11 +447,27 @@ public partial class Player : CharacterBody3D
     /// Works out whether the animal can drink or eat, starts doing so when E is pressed, and tracks how far
     /// the head is dipped while it happens. Grass is flattened halfway through a mouthful, when the head is
     /// lowest. Water takes priority over grass, since grass doesn't grow at the water's edge. Only looks for food
-    /// when it can reach the ground (<paramref name="lookForFood"/>), but finishes a mouthful anywhere, e.g. of a kill
-    /// up a tree (see <see cref="UpdateHunting"/>).
+    /// when it can reach the ground (<paramref name="lookForFood"/>), but feeds anywhere, e.g. on a kill
+    /// up a tree (see <see cref="UpdateHunting"/>). Once started, the animal goes on mouthful after mouthful, the way
+    /// grazers crop steadily and a cat settles down over its kill, until E is pressed again or the food runs out.
     /// </summary>
     private void UpdateFeeding(float dt, bool lookForFood)
     {
+        if (IsFeeding && !_stopFeeding && Input.IsActionJustPressed(InputSetup.Eat))
+        {
+            // Lift the head from where it is rather than finishing the mouthful: a head still going down turns
+            // round at the same height. Nothing more is taken on the way up.
+            _stopFeeding = true;
+            _feedTimer = Mathf.Min(_feedTimer, _feedDuration - _feedTimer);
+            _grassTarget = -1;
+            _carcass = null;
+            // Keep feeding through this frame, so the same press can't start the animal eating again.
+            return;
+        }
+
+        if (IsFeeding && !_stopFeeding)
+            ActionPrompt = _feeding == Feeding.Drinking ? "Press E or click to stop drinking" : "Press E or click to stop eating";
+
         if (!IsFeeding && lookForFood && !Animal.IsResting)
         {
             int grass = Stats.CanGraze ? Grassland?.FindEdible(Mouth, Stats.EatReach) ?? -1 : -1;
@@ -488,19 +510,54 @@ public partial class Player : CharacterBody3D
         }
 
         // Meat is torn off at the same point in the mouthful.
-        if (_feeding == Feeding.Eating && progress >= 0.5f && _carcass is not null)
+        if (_feeding == Feeding.Eating && progress >= 0.5f && _carcass is not null && !_bitten)
         {
             if (Wildlife!.EatFrom(_carcass, MeatShare))
                 Hunger = Mathf.Min(100f, Hunger + MeatPerMouthful);
-            _carcass = null;
+            _bitten = true;
         }
 
         // Thirst fills steadily for as long as the animal drinks.
-        if (_feeding == Feeding.Drinking)
+        if (_feeding == Feeding.Drinking && !_stopFeeding)
             Thirst = Mathf.Min(100f, Thirst + WaterPerDrink * dt / _feedDuration);
 
         if (_feedTimer <= 0f)
-            _feeding = Feeding.None;
+            NextMouthful();
+    }
+
+    /// <summary>
+    /// At the end of a mouthful, takes another if the player hasn't asked the animal to stop and there's still food in
+    /// reach: more water, more grass, or meat left on the kill. Otherwise it stops.
+    /// </summary>
+    private void NextMouthful()
+    {
+        var feeding = _feeding;
+        _feeding = Feeding.None;
+        if (_stopFeeding)
+            return;
+
+        if (feeding == Feeding.Drinking)
+        {
+            if (Water?.SurfaceAt(Mouth) is not null)
+                StartFeeding(Feeding.Drinking, DrinkDuration);
+        }
+        else if (_carcass is { } carcass)
+        {
+            if (Wildlife?.HasMeat(carcass) == true)
+            {
+                StartFeeding(Feeding.Eating, EatDuration);
+                _carcass = carcass;
+            }
+            else
+            {
+                _carcass = null;
+            }
+        }
+        else if (Grassland?.FindEdible(Mouth, Stats.EatReach) is >= 0 and var grass)
+        {
+            StartFeeding(Feeding.Eating, EatDuration);
+            _grassTarget = grass;
+        }
     }
 
     /// <summary>
@@ -553,5 +610,7 @@ public partial class Player : CharacterBody3D
         _feeding = feeding;
         _feedDuration = duration;
         _feedTimer = duration;
+        _stopFeeding = false;
+        _bitten = false;
     }
 }

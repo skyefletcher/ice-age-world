@@ -116,8 +116,11 @@ public partial class Wildlife : Node3D
     /// </summary>
     [Export] public float ChaseSeconds { get; set; } = 90f;
 
-    /// <summary>Seconds after it falls before an animal is reborn, and how long the youngster takes to grow up.</summary>
-    [Export] public float RebirthSeconds { get; set; } = 40f;
+    /// <summary>
+    /// Seconds after it falls before an animal is reborn, and how long the youngster takes to grow up. The carcass lies
+    /// there all that time, long enough for a hunter to settle down and feed on it at leisure.
+    /// </summary>
+    [Export] public float RebirthSeconds { get; set; } = 180f;
     [Export] public float GrowUpSeconds { get; set; } = 120f;
 
     /// <summary>The player, whom herds and rafts keep a wary eye on while it's an animal that hunts.</summary>
@@ -130,6 +133,12 @@ public partial class Wildlife : Node3D
 
     /// <summary>Below this much left, a carcass is skin and bone with nothing more to eat.</summary>
     private const float PickedClean = 0.35f;
+
+    /// <summary>Seconds the last of a carcass takes to sink away into the snow before the rebirth, so it fades rather than vanishing.</summary>
+    private const float RotSeconds = 20f;
+
+    /// <summary>A carcass doesn't rot away while something has fed from it within this many seconds, so a meal is never cut short.</summary>
+    private const float FeedingGrace = 4f;
 
     private sealed class Beast
     {
@@ -160,9 +169,12 @@ public partial class Wildlife : Node3D
 
         public bool IsDead => Health <= 0f;
         public float DeadTime;
+
+        /// <summary>Seconds since something last took a mouthful from the carcass.</summary>
+        public float SinceFed = float.MaxValue;
         public float GrazeTimer;
 
-        /// <summary>0..1 how much of the carcass is left, shrinking as it is eaten and then as it rots away.</summary>
+        /// <summary>0..1 how much meat is left on the carcass, falling as it is eaten.</summary>
         public float Remains = 1f;
 
         /// <summary>
@@ -621,6 +633,7 @@ public partial class Wildlife : Node3D
             return false;
 
         beast.Remains = Mathf.Max(PickedClean, beast.Remains - share / Mathf.Max(beast.Bulk, 0.05f) * (1f - PickedClean));
+        beast.SinceFed = 0f;
         return true;
     }
 
@@ -1289,7 +1302,9 @@ public partial class Wildlife : Node3D
                 continue;
             }
 
-            if (!beast.HeldAt.HasValue)
+            // It doesn't rot while carried, or while something is still feeding on it.
+            beast.SinceFed += dt;
+            if (!beast.HeldAt.HasValue && beast.SinceFed > FeedingGrace)
                 beast.DeadTime += dt;
             if (beast.DeadTime > RebirthSeconds)
             {
@@ -1309,6 +1324,7 @@ public partial class Wildlife : Node3D
         beast.Body.GlobalPosition = spot with { Y = Mathf.Max(_terrain.GetHeight(spot.X, spot.Z), _water.SurfaceAt(spot) ?? float.MinValue) };
         beast.Health = 100f;
         beast.DeadTime = 0f;
+        beast.SinceFed = float.MaxValue;
         beast.Remains = 1f;
         beast.HeldAt = null;
         beast.Perched = false;
@@ -1872,10 +1888,10 @@ public partial class Wildlife : Node3D
         beast.Animal.IsSwimming = afloat && !beast.Perched && !beast.HeldAt.HasValue;
         Pool(beast, afloat);
 
-        // The last of it sinks into the snow as it rots away, just before the rebirth.
-        float sink = Mathf.Clamp((beast.DeadTime - (RebirthSeconds - 6f)) / 6f, 0f, 1f);
-        float remains = beast.Remains * (1f - sink);
-        beast.Body.Scale = new Vector3(beast.Size, beast.Size * remains, beast.Size);
+        // Feeding doesn't shrink the body: what's eaten is meat from inside it, and the hide and bones keep its shape. Only
+        // the last of it sinks into the snow as it rots away, just before the rebirth.
+        float sink = Mathf.Clamp((beast.DeadTime - (RebirthSeconds - RotSeconds)) / RotSeconds, 0f, 1f);
+        beast.Body.Scale = new Vector3(beast.Size, beast.Size * (1f - sink), beast.Size);
         if (Seen(beast))
             beast.Animal.Animate(0f, 0f, 0f, dt);
     }
@@ -1900,7 +1916,7 @@ public partial class Wildlife : Node3D
         if (pool.Visible)
         {
             // It shrinks back into the snow with the last of the carcass, just before the rebirth.
-            float fade = 1f - Mathf.Clamp((beast.DeadTime - (RebirthSeconds - 6f)) / 6f, 0f, 1f);
+            float fade = 1f - Mathf.Clamp((beast.DeadTime - (RebirthSeconds - RotSeconds)) / RotSeconds, 0f, 1f);
             Blood.Spread(pool, beast.DeadTime);
             pool.Scale *= new Vector3(fade, 1f, fade);
             pool.Visible = fade > 0f;
