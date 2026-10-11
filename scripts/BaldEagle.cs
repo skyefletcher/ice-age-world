@@ -151,6 +151,7 @@ public partial class BaldEagle : Animal
         }
 
         AnimateWings(dt);
+        Chew(eat, dt);
         _hair.SetShaderParameter("sway_amount", 0.004f + 0.01f * air);
     }
 
@@ -318,7 +319,10 @@ public partial class BaldEagle : Animal
             radii[s] = Mathf.Lerp(0.022f, 0.003f, Mathf.Pow(t, 1.3f));
         }
         Attach(head, "Beak", Tube(path, radii, 12, yellow, capEnd: true));
-        Attach(head, "LowerBeak", Tube([new Vector3(0, -0.014f, -0.05f), new Vector3(0, -0.02f, -0.088f)], [0.014f, 0.004f], 10, yellow, capEnd: true));
+        // The lower mandible hinges at the corner of the mouth, so the beak gapes to tear at food or drink.
+        var jaw = Jaw(head, new Vector3(0, -0.012f, -0.045f));
+        Attach(jaw, "LowerBeak", Tube([new Vector3(0, -0.002f, -0.005f), new Vector3(0, -0.008f, -0.043f)], [0.014f, 0.004f], 10, yellow, capEnd: true));
+        MouthInside(jaw, new Vector3(0.006f, 0.003f, 0.018f), new Vector3(0, 0.004f, -0.018f));
 
         foreach (float side in new[] { -1f, 1f })
         {

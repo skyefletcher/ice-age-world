@@ -76,6 +76,9 @@ public partial class Mammoth : Animal
         CameraDistance = 11f * BodyScale,
     };
 
+    // The lip hides under the trunk, so it drops well clear to be seen.
+    protected override float JawGape => 0.5f;
+
     public override void _Ready() => Build();
 
     public override void Animate(float speed, float stride, float eat, float dt)
@@ -134,6 +137,8 @@ public partial class Mammoth : Animal
         _ears[0].Rotation = new Vector3(0, 0.5f + flap, 0);
         _ears[1].Rotation = new Vector3(0, -(0.5f + flap), 0);
 
+        Chew(eat, dt);
+
         // Loose hair bounces more the faster the animal moves.
         _hair.SetShaderParameter("sway_amount", (0.025f + 0.06f * stride) * Alive);
     }
@@ -175,6 +180,13 @@ public partial class Mammoth : Animal
                 new Vector3(side * 0.5f, 0.12f, -0.4f)));
             Attach(head, "Tusk", Tusk(side, ivory));
         }
+
+        // A pointed lower lip tucked under the root of the trunk, hinged at the back of the mouth so it drops open
+        // for the grass the trunk brings up.
+        var jaw = Jaw(head, new Vector3(0, -0.7f, -0.1f));
+        Attach(jaw, "Lip", Ellipsoid(u => new Vector3(u.X * 0.22f * (1f - 0.4f * Mathf.Max(0f, -u.Z)), u.Y * 0.1f, u.Z * 0.25f), 14, 8, hide),
+            new Vector3(0, -0.05f, -0.22f));
+        MouthInside(jaw, new Vector3(0.13f, 0.035f, 0.18f), new Vector3(0, 0.03f, -0.2f));
 
         _ears = new Node3D[2];
         for (int i = 0; i < 2; i++)

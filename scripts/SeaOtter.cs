@@ -67,6 +67,9 @@ public partial class SeaOtter : Animal
         CameraDistance = 2.5f,
     };
 
+    // A small mouth must gape wide to show at all.
+    protected override float JawGape => 0.6f;
+
     public override void _Ready() => Build();
 
     public override void Animate(float speed, float stride, float eat, float dt)
@@ -84,6 +87,7 @@ public partial class SeaOtter : Animal
         else
             Bound(speed, stride, eat, dt);
 
+        Chew(eat, dt);
         GoLimp();
         _hair.SetShaderParameter("sway_amount", (0.004f + 0.008f * stride) * Alive);
     }
@@ -296,7 +300,10 @@ public partial class SeaOtter : Animal
             // Tiny round ears, set low and far back on the sides of the head.
             Attach(head, "Ear", Ellipsoid(new Vector3(0.006f, 0.01f, 0.009f), 10, 6, fur), new Vector3(side * 0.066f, 0.026f, 0.025f));
         }
-        Attach(head, "Chin", Ellipsoid(new Vector3(0.03f, 0.016f, 0.03f), 12, 8, pale), new Vector3(0, -0.045f, -0.05f));
+        // The chin hangs off a jaw hinged behind it, so it drops open to eat.
+        var jaw = Jaw(head, new Vector3(0, -0.042f, -0.02f));
+        Attach(jaw, "Chin", Ellipsoid(new Vector3(0.03f, 0.016f, 0.03f), 12, 8, pale), new Vector3(0, -0.003f, -0.03f));
+        MouthInside(jaw, new Vector3(0.018f, 0.005f, 0.022f), new Vector3(0, 0.01f, -0.03f));
     }
 
     /// <summary>Long and round, a little deeper at the hips, where the powerful hind legs that drive it through the water attach.</summary>

@@ -186,6 +186,7 @@ public partial class ArcticWolf : Animal
         _ears[0].Rotation = new Vector3(0, 0, twitch);
         _ears[1].Rotation = new Vector3(0, 0, -Mathf.Pow(Mathf.Max(0f, Mathf.Sin(_time * 0.7f + 2.5f)), 12f) * 0.35f * Alive);
 
+        Chew(eat, dt);
         GoLimp();
         _hair.SetShaderParameter("sway_amount", (0.008f + 0.02f * stride) * Alive);
     }
@@ -355,7 +356,10 @@ public partial class ArcticWolf : Animal
             muzzlePosition);
         Attach(snout, "MuzzleFur", Strands(rng, OnShape(rng, u => muzzle(u) + muzzlePosition, 300, u => u.Y > -0.2f && u.Z > -0.7f),
             new Vector3(0, 0, 1f), 0.01f, 0.018f, FurRoot, FurTip, _hair, width: 0.01f, colouring: coatColour));
-        Attach(snout, "Jaw", Ellipsoid(new Vector3(0.032f, 0.018f, 0.06f), 14, 8, coat), new Vector3(0, -0.03f, -0.015f));
+        // The lower jaw hinges at the back of the mouth, so it can drop open to eat.
+        var jaw = Jaw(snout, new Vector3(0, -0.025f, 0.03f));
+        Attach(jaw, "Jaw", Ellipsoid(new Vector3(0.032f, 0.018f, 0.06f), 14, 8, coat), new Vector3(0, -0.005f, -0.045f));
+        MouthInside(jaw, new Vector3(0.022f, 0.006f, 0.045f), new Vector3(0, 0.01f, -0.045f));
 
         // A slightly bigger, rounder nose button suits the shorter muzzle.
         Attach(snout, "Nose", Ellipsoid(new Vector3(0.02f, 0.015f, 0.016f), 14, 10, nose), new Vector3(0, 0.02f, -0.11f));

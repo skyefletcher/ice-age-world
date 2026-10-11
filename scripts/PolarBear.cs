@@ -176,8 +176,11 @@ public partial class PolarBear : Quadruped
         Func<Vector3, Vector3> nose = u => new Vector3(u.X * 0.05f * (0.8f + 0.25f * u.Y), u.Y * 0.032f, u.Z * 0.03f);
         Attach(snout, "Nose", Ellipsoid(nose, 14, 10, black), muzzleAt + new Vector3(0, 0.018f, -0.175f));
 
-        // The jaw beneath, with the black lips showing as a line along each side of the mouth.
-        Attach(snout, "Jaw", Ellipsoid(new Vector3(0.068f, 0.035f, 0.13f), 12, 8, coat), muzzleAt + new Vector3(0, -0.06f, 0.0f));
+        // The jaw beneath, hinged at the back so it drops open to eat, with the black lips showing as a line along
+        // each side of the mouth.
+        var jaw = Jaw(snout, new Vector3(0, -0.085f, -0.1f));
+        Attach(jaw, "Jaw", Ellipsoid(new Vector3(0.068f, 0.035f, 0.13f), 12, 8, coat), new Vector3(0, -0.01f, -0.12f));
+        MouthInside(jaw, new Vector3(0.045f, 0.012f, 0.1f), new Vector3(0, 0.02f, -0.12f));
         foreach (float side in new[] { -1f, 1f })
         {
             var lip = Pivot(snout, "Lip", muzzleAt + new Vector3(side * 0.058f, -0.036f, -0.07f));

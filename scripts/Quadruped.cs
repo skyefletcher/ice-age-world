@@ -155,6 +155,7 @@ public abstract partial class Quadruped : Animal
         Head.Rotation = new Vector3(Pose(-eat * HeadDown * 0.4f + run * 0.15f, SitsUp ? -SitPitch * 0.4f : -0.1f, LieHead), 0, 0);
 
         AnimateExtras(stride, run, dt);
+        Chew(eat, dt);
         GoLimp();
         Hair.SetShaderParameter("sway_amount", (0.006f + 0.015f * stride) * Alive);
     }

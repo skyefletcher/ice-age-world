@@ -306,6 +306,66 @@ public abstract partial class Animal : Node3D
         return node;
     }
 
+    /// <summary>How far the lower jaw drops, in radians, when the mouth is held open to feed.</summary>
+    protected virtual float JawGape => 0.35f;
+
+    private readonly List<Node3D> _jaws = [];
+    private float _sinceBite;
+    private float _nextBite = 1f;
+
+    /// <summary>How long a bite takes, from snapping the jaw shut to opening it again.</summary>
+    private const float BiteSeconds = 0.35f;
+
+    /// <summary>
+    /// A lower jaw hinged at <paramref name="hinge"/>, at the back of the mouth, which <see cref="Chew"/> drops open to
+    /// feed. Hang the chin, lower lip or lower beak off it, built where it was before, less the hinge.
+    /// </summary>
+    protected Node3D Jaw(Node3D parent, Vector3 hinge)
+    {
+        var jaw = Pivot(parent, "Jaw", hinge);
+        _jaws.Add(jaw);
+        return jaw;
+    }
+
+    /// <summary>
+    /// The inside of the mouth: a dark lining with a pink tongue resting on the lower jaw, hidden in the closed mouth
+    /// and showing when it opens. <paramref name="radii"/> is the tongue's size and <paramref name="position"/> where
+    /// it lies on the jaw.
+    /// </summary>
+    protected static void MouthInside(Node3D jaw, Vector3 radii, Vector3 position)
+    {
+        var lining = new StandardMaterial3D { AlbedoColor = new Color(0.22f, 0.07f, 0.07f), Roughness = 0.6f };
+        var tongue = new StandardMaterial3D { AlbedoColor = new Color(0.72f, 0.36f, 0.38f), Roughness = 0.4f };
+        Attach(jaw, "Mouth", Ellipsoid(radii * new Vector3(1.2f, 1.5f, 1.1f), 12, 8, lining), position + new Vector3(0, -radii.Y * 0.6f, 0));
+        Attach(jaw, "Tongue", Ellipsoid(radii, 12, 8, tongue), position);
+    }
+
+    /// <summary>
+    /// Feeding with its head down, the animal holds its mouth open and every second or two bites it shut on a mouthful,
+    /// then opens it again for the next. Drinking, it laps the same way. Any other time the mouth stays closed.
+    /// <paramref name="eat"/> is the head-dip passed to <see cref="Animate"/>.
+    /// </summary>
+    protected void Chew(float eat, float dt)
+    {
+        if (_jaws.Count == 0)
+            return;
+
+        float feeding = Mathf.SmoothStep(0.4f, 0.9f, eat) * Alive;
+        _sinceBite += dt;
+        if (_sinceBite >= _nextBite)
+        {
+            _sinceBite = 0f;
+            _nextBite = (float)GD.RandRange(0.9, 2.4);
+        }
+
+        // The jaw snaps shut quickly and opens again more slowly.
+        float t = _sinceBite / BiteSeconds;
+        float shut = t < 0.3f ? Mathf.SmoothStep(0f, 1f, t / 0.3f) : 1f - Mathf.SmoothStep(0f, 1f, (t - 0.3f) / 0.7f);
+        float open = feeding * (1f - Mathf.Clamp(shut, 0f, 1f));
+        foreach (var jaw in _jaws)
+            jaw.Rotation = new Vector3(-JawGape * open, 0, 0);
+    }
+
     /// <summary>Eases the sitting and lying poses towards <paramref name="posture"/>, taking <paramref name="seconds"/> to settle or get up.</summary>
     public void Settle(Posture posture, float seconds, float dt)
     {

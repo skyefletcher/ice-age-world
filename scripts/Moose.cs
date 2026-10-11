@@ -175,7 +175,10 @@ public partial class Moose : Quadruped
         Attach(Head, "Lip", Ellipsoid(new Vector3(0.12f, 0.085f, 0.08f) * NoseScale, 16, 10, coat, (p, n) => Muzzle), lipAt);
         foreach (float side in new[] { -1f, 1f })
             Attach(Head, "Nostril", Ellipsoid(new Vector3(0.02f, 0.035f, 0.012f) * NoseScale, 8, 6, horn), lipAt + new Vector3(side * 0.05f, 0.01f, -0.072f) * NoseScale);
-        Attach(Head, "Jaw", Ellipsoid(new Vector3(0.08f, 0.04f, 0.14f), 12, 8, coat, (p, n) => Muzzle), faceAt + new Vector3(0, -0.1f, -0.06f));
+        // The lower jaw hinges at the back of the mouth, so it drops open below the lip to browse.
+        var jaw = Jaw(Head, faceAt + new Vector3(0, -0.09f, 0.07f));
+        Attach(jaw, "Jaw", Ellipsoid(new Vector3(0.08f, 0.04f, 0.14f), 12, 8, coat, (p, n) => Muzzle), new Vector3(0, -0.01f, -0.13f));
+        MouthInside(jaw, new Vector3(0.05f, 0.012f, 0.1f), new Vector3(0, 0.02f, -0.13f));
 
         // The bell: a flap of skin and long hair hanging from the throat.
         _bell = Pivot(Head, "Bell", new Vector3(0, -0.12f, 0.08f));

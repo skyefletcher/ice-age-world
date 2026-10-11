@@ -173,7 +173,10 @@ public partial class Reindeer : Quadruped
         var muzzleAt = new Vector3(0, -0.04f, -0.285f);
         var muzzle = new Vector3(0.06f, 0.058f, 0.065f) * NoseScale;
         Attach(Head, "Muzzle", Ellipsoid(muzzle, 16, 12, coat, (p, n) => Muzzle), muzzleAt);
-        Attach(Head, "Chin", Ellipsoid(new Vector3(0.04f, 0.022f, 0.05f) * NoseScale, 12, 8, coat, (p, n) => Muzzle), new Vector3(0, -0.08f, -0.26f));
+        // The chin hangs off a jaw hinged further back, so it drops open to crop grass and lichen.
+        var jaw = Jaw(Head, new Vector3(0, -0.07f, -0.18f));
+        Attach(jaw, "Chin", Ellipsoid(new Vector3(0.04f, 0.022f, 0.05f) * NoseScale, 12, 8, coat, (p, n) => Muzzle), new Vector3(0, -0.01f, -0.08f));
+        MouthInside(jaw, new Vector3(0.026f, 0.008f, 0.05f), new Vector3(0, 0.012f, -0.07f));
         Attach(Head, "HeadFur", Strands(rng, OnShape(rng, u => face(u) + faceAt, 500, u => u.Y > -0.4f), new Vector3(0, -0.1f, 0.8f),
             0.012f, 0.022f, FurRoot, FurTip, Hair, width: 0.013f, colouring: faceFur));
         Attach(Head, "SkullFur", Strands(rng, OnShape(rng, u => u * skull, 400, u => u.Z > -0.6f), CoatDrift,

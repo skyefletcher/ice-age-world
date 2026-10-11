@@ -63,6 +63,9 @@ public partial class ArcticHare : Animal
         CameraDistance = 2f * BodyScale,
     };
 
+    // A small mouth must gape wide to show at all.
+    protected override float JawGape => 0.55f;
+
     public override void _Ready() => Build();
 
     public override void Animate(float speed, float stride, float eat, float dt)
@@ -106,6 +109,7 @@ public partial class ArcticHare : Animal
         }
 
         _tail.Rotation = new Vector3(Pose(-0.3f + bound * 0.2f * stride, 0.5f, 0f), 0, 0);
+        Chew(eat, dt);
         GoLimp();
         _hair.SetShaderParameter("sway_amount", (0.004f + 0.006f * stride) * Alive);
     }
@@ -157,6 +161,11 @@ public partial class ArcticHare : Animal
             0.01f, 0.016f, FurRoot, FurTip, _hair, width: 0.012f, colouring: coatColour));
         Attach(head, "Muzzle", Ellipsoid(new Vector3(0.036f, 0.03f, 0.035f), 14, 10, coat), new Vector3(0, -0.018f, -0.085f));
         Attach(head, "Nose", Ellipsoid(new Vector3(0.012f, 0.008f, 0.006f), 10, 6, nose), new Vector3(0, -0.006f, -0.118f));
+
+        // A small chin under the muzzle, on a jaw hinged behind it that drops open to nibble.
+        var jaw = Jaw(head, new Vector3(0, -0.035f, -0.06f));
+        Attach(jaw, "Chin", Ellipsoid(new Vector3(0.018f, 0.01f, 0.022f), 12, 8, coat), new Vector3(0, -0.006f, -0.025f));
+        MouthInside(jaw, new Vector3(0.011f, 0.004f, 0.014f), new Vector3(0, 0.005f, -0.025f));
         Attach(head, "Whiskers", Strands(rng, OnShape(rng, u => u * new Vector3(0.036f, 0.03f, 0.035f) + new Vector3(0, -0.018f, -0.085f), 20,
             u => Mathf.Abs(u.X) > 0.5f && u.Z < 0f), new Vector3(0, -0.1f, 0.2f), 0.05f, 0.07f, FurRoot, Colors.White, _hair, width: 0.002f));
 

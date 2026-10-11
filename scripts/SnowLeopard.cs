@@ -119,6 +119,9 @@ public partial class SnowLeopard : Animal
         CameraDistance = 3.5f * BodyScale,
     };
 
+    // A cat drops its jaw wide to get its side teeth into meat.
+    protected override float JawGape => 0.6f;
+
     public override void _Ready()
     {
         Scale = Vector3.One * BodyScale;
@@ -223,6 +226,8 @@ public partial class SnowLeopard : Animal
         float twitch = Mathf.Pow(Mathf.Max(0f, Mathf.Sin(_time * 0.8f)), 12f) * 0.4f;
         _ears[0].Rotation = new Vector3(0, 0, twitch);
         _ears[1].Rotation = new Vector3(0, 0, -Mathf.Pow(Mathf.Max(0f, Mathf.Sin(_time * 0.8f + 2f)), 12f) * 0.4f);
+
+        Chew(eat, dt);
 
         _hair.SetShaderParameter("sway_amount", 0.006f + 0.015f * stride);
     }
@@ -420,10 +425,12 @@ public partial class SnowLeopard : Animal
         Attach(muzzle, "Nose", Ellipsoid(u => new Vector3(u.X * 0.0125f * (0.7f + 0.4f * Mathf.Max(u.Y, -0.5f)), u.Y * 0.0085f, u.Z * 0.009f),
             14, 10, nose), nosePosition);
 
-        // Pale chin, its top edge the dark lower lip.
-        var chinPosition = new Vector3(0, -0.026f, -0.016f);
-        Attach(muzzle, "Chin", Ellipsoid(new Vector3(0.018f, 0.011f, 0.019f), 14, 8, face,
+        // Pale chin, its top edge the dark lower lip, on a jaw hinged behind it that drops open to eat.
+        var jaw = Jaw(muzzle, new Vector3(0, -0.022f, 0.01f));
+        var chinPosition = new Vector3(0, -0.004f, -0.026f);
+        Attach(jaw, "Chin", Ellipsoid(new Vector3(0.018f, 0.011f, 0.019f), 14, 8, face,
             (_, n) => Colors.White.Lerp(Grey(0.15f), Mathf.SmoothStep(0.55f, 0.8f, n.Y))), chinPosition);
+        MouthInside(jaw, new Vector3(0.011f, 0.004f, 0.016f), new Vector3(0, 0.006f, -0.022f));
 
         foreach (float side in new[] { -1f, 1f })
         {
