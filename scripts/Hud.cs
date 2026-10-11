@@ -64,8 +64,13 @@ public partial class Hud : CanvasLayer
         // Stamina runs low all the time in a chase, so it only warns once the animal is out of breath.
         UpdateBar(_staminaBar, Player.Stamina, Player.IsExhausted);
 
-        // The only words on screen are the prompt to eat or drink; everything else the player sees for itself.
-        string? prompt = Player.ActionPrompt;
+        // The only words on screen are the prompt to eat or drink, and how pairing up with a wild snow leopard is going;
+        // everything else the player sees for itself.
+        string? prompt = (Player.ActionPrompt, Player.CourtshipPrompt) switch
+        {
+            ({ } action, { } courtship) => $"{courtship}\n{action}",
+            var (action, courtship) => action ?? courtship,
+        };
         _actionPrompt.Visible = prompt is not null;
         _actionPrompt.Text = prompt ?? "";
 

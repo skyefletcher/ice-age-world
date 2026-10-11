@@ -13,7 +13,8 @@ namespace IceAgeWorld;
 /// swim across water, step round tree trunks and keep out of each other's way, but they are not solid. When the
 /// leader of a pack attacks a wild animal, the pack runs in, rings it and helps bring it down, and when the leader
 /// eats from a kill, the pack crowds round and eats with it. A snow leopard's family (a mate and their cub) hunts and
-/// feeds with the leader the same way, and whenever a cub grows up, another is born.
+/// feeds with the leader the same way, and whenever a cub grows up, another is born. A wild snow leopard may challenge
+/// the mate for its place and fight it to the death; if the mate falls, the cubs fight the newcomer for their lives.
 /// </summary>
 public partial class Herd : Node3D
 {
@@ -27,17 +28,33 @@ public partial class Herd : Node3D
 
     /// <summary>
     /// True for a snow leopard's family, which starts empty, until the leader finds a mate, and has a new cub each time
-    /// the last one grows up, up to <see cref="MaxFamily"/>.
+    /// the last one grows up, up to <see cref="MaxCubs"/>.
     /// </summary>
     public bool IsFamily { get; init; }
 
-    /// <summary>
-    /// The most cubs a family has, mate and leader not counted: a snow leopard litter is usually two or three cubs.
-    /// </summary>
-    private const int MaxFamily = 3;
+    /// <summary>The most cubs a family has, mate and leader not counted: a snow leopard litter is usually two or three.</summary>
+    private const int MaxCubs = 3;
+
+    /// <summary>Seconds a dead mate or cub lies where it fell before it is gone.</summary>
+    private const float BodySeconds = 20f;
 
     /// <summary>True once there is anyone travelling with the leader.</summary>
     public bool Any => _members.Count > 0;
+
+    /// <summary>The family's living mate, if it has one.</summary>
+    private Member? LivingMate => _members.FirstOrDefault(m => m.IsMate && !m.IsDead);
+
+    /// <summary>True while the family has a living mate: a snow leopard keeps only one.</summary>
+    public bool HasMate => LivingMate is not null;
+
+    /// <summary>Where the living mate is, if there is one.</summary>
+    public Vector3? MatePosition => LivingMate?.Body.GlobalPosition;
+
+    /// <summary>
+    /// A wild snow leopard fighting the mate for its place, if any. The mate turns to face it and fights back; the bites
+    /// both ways are dealt by <see cref="Wildlife"/>.
+    /// </summary>
+    public Vector3? ChallengerAt { get; set; }
 
     /// <summary>Where each companion is.</summary>
     public IEnumerable<Vector3> Positions => _members.Select(m => m.Body.GlobalPosition);
@@ -65,6 +82,18 @@ public partial class Herd : Node3D
         /// <summary>Seconds it has held on so far, and seconds left getting its breath back before it can leap on again.</summary>
         public float GripTime;
         public float GripRest;
+
+        /// <summary>True for a snow leopard's mate; everyone else in a family is a cub.</summary>
+        public bool IsMate;
+
+        /// <summary>True while it has leapt on a wild snow leopard fighting the family and clamped its jaws on it.</summary>
+        public bool Latched;
+
+        /// <summary>Its life, from 100; only a family's mate and cubs can lose it, in a fight over the leader.</summary>
+        public float Health = 100f;
+
+        public bool IsDead => Health <= 0f;
+        public float DeadTime;
     }
 
     private readonly List<Member> _members = [];
@@ -93,6 +122,12 @@ public partial class Herd : Node3D
     /// </summary>
     private const float GripHoldSeconds = 7f;
     private const float GripRestSeconds = 4f;
+
+    /// <summary>
+    /// Health a grown family snow leopard's ordinary bites take each second from a wild one fighting it, as the wild
+    /// one's do (see <see cref="Wildlife.RivalBite"/>); its clamped jaws do <see cref="FamilyGripStrength"/>.
+    /// </summary>
+    private const float FightBiteStrength = 8f;
 
     /// <summary>
     /// The pack gives up on its prey this many seconds after the leader last went for it, or once the leader is this
@@ -176,6 +211,42 @@ public partial class Herd : Node3D
         return index < crowd.Length ? crowd[index] : new Vector3((index % 2 - 0.5f) * 2f, 0f, index * 0.6f);
     }
 
+    /// <summary>A grown snow leopard joins the family as a mate, walking up from <paramref name="at"/>, and they have a cub.</summary>
+    public void AddMate(Vector3 at)
+    {
+        Recruit(1f, at);
+        _members[^1].IsMate = true;
+        Recruit();
+    }
+
+    /// <summary>
+    /// The challenger's bites take <paramref name="damage"/> from the mate. Returns true if that killed it.
+    /// </summary>
+    public bool HurtMate(float damage)
+    {
+        if (LivingMate is not { } mate)
+            return false;
+        mate.Health -= damage;
+        return mate.IsDead;
+    }
+
+    /// <summary>
+    /// Where the living cub nearest <paramref name="at"/> is, if any. A newcomer that has killed the mate goes after the
+    /// cubs one by one, as male big cats do when they take over, so that the leader will have cubs with it instead; any
+    /// it doesn't kill live on.
+    /// </summary>
+    public Vector3? NearestCub(Vector3 at) => NearestLivingCub(at)?.Body.GlobalPosition;
+
+    /// <summary>The newcomer's bites take <paramref name="damage"/> from the cub nearest it, at <paramref name="at"/>.</summary>
+    public void HurtNearestCub(Vector3 at, float damage)
+    {
+        if (NearestLivingCub(at) is { } cub)
+            cub.Health -= damage;
+    }
+
+    private Member? NearestLivingCub(Vector3 at) =>
+        _members.Where(m => !m.IsMate && !m.IsDead).MinBy(m => m.Body.GlobalPosition.DistanceSquaredTo(at));
+
     /// <summary>
     /// A new member is born into the pack or herd, as a youngster at the leader's side, and grows up over a couple of
     /// minutes. A wolf the player killed in a fight is reborn this way, as one of the player's own pack. A grown animal
@@ -236,7 +307,7 @@ public partial class Herd : Node3D
         Target = null;
         Meal = null;
         float yaw = Leader.Animal.Rotation.Y;
-        foreach (var member in _members)
+        foreach (var member in _members.Where(m => !m.IsDead))
         {
             LetGo(member);
             var spot = Leader.GlobalPosition + member.Slot.Rotated(Vector3.Up, yaw);
@@ -278,23 +349,47 @@ public partial class Herd : Node3D
             || Leader.GlobalPosition.DistanceTo(meal.GlobalPosition) > MealLeash))
             Meal = null;
 
+        // The dead lie where they fell a while, then are gone.
+        foreach (var dead in _members.Where(m => m.IsDead && m.DeadTime > BodySeconds).ToList())
+        {
+            dead.Body.QueueFree();
+            _members.Remove(dead);
+        }
+
         for (int i = 0; i < _members.Count; i++)
             Move(_members[i], i, dt);
     }
 
+    /// <summary>A dead mate or cub goes limp and lies still where it fell.</summary>
+    private void LieDead(Member member, float dt)
+    {
+        LetGo(member);
+        member.DeadTime += dt;
+        member.Velocity = Vector3.Zero;
+        member.Animal.Settle(Posture.Lying, 0.6f, dt);
+        member.Animal.Dead = Mathf.MoveToward(member.Animal.Dead, 1f, dt / 0.8f);
+        member.Animal.IsSwimming = false;
+        member.Animal.Animate(0f, 0f, 0f, dt);
+    }
+
     private void Move(Member member, int index, float dt)
     {
+        if (member.IsDead)
+        {
+            LieDead(member, dt);
+            return;
+        }
         var stats = member.Animal.Stats;
         var terrain = Leader.Terrain;
         float leaderYaw = Leader.Animal.Rotation.Y;
 
-        // A newcomer grows up as it travels with the others. In a family, a cub growing up means a new one is born.
+        // A newcomer grows up as it travels with the others. In a family, a cub growing up means a new one is born, as
+        // long as the mate is alive.
         if (member.Size < 1f)
         {
             member.Size = Mathf.Min(1f, member.Size + (1f - YoungSize) / GrowUpSeconds * dt);
             member.Body.Scale = Vector3.One * member.Size;
-            // Everyone but the mate is a cub.
-            if (member.Size >= 1f && IsFamily && _members.Count - 1 < MaxFamily)
+            if (member.Size >= 1f && IsFamily && HasMate && _members.Count(m => !m.IsMate && !m.IsDead) < MaxCubs)
                 Recruit();
         }
         var position = member.Body.GlobalPosition;
@@ -314,7 +409,11 @@ public partial class Herd : Node3D
         Vector3? faceAt = null;
         var prey = Target;
         member.GripRest = Mathf.Max(0f, member.GripRest - dt);
-        if (member.Gripping is not null && (member.Gripping != prey || member.GripTime > GripHoldSeconds))
+        // The mate fights a challenger; once the mate is dead, the cubs fight for their lives.
+        bool defending = ChallengerAt.HasValue && (member.IsMate || !HasMate);
+        if (!defending)
+            member.Latched = false;
+        if (member.Gripping is not null && (member.Gripping != prey || member.GripTime > GripHoldSeconds || defending))
         {
             LetGo(member);
             member.GripRest = GripRestSeconds;
@@ -324,7 +423,40 @@ public partial class Herd : Node3D
             HoldOn(member, dt);
             return;
         }
-        if (prey is not null)
+        if (defending)
+        {
+            // Challenged for its place, the mate squares up to the rival and they fight to the death; a cub fights the
+            // newcomer for its life. With its breath, each leaps on and clamps its jaws with the special attack, pressed
+            // against the rival, then bites while it gets its breath back. A cub has a cub's jaws.
+            var challenger = ChallengerAt!.Value;
+            var away = (position - challenger) with { Y = 0f };
+            float ring = stats.BodyRadius * (1f + 0.6f * member.Size);
+            if (away.Length() < ring + 0.8f)
+            {
+                if (!member.Latched && member.GripRest <= 0f)
+                {
+                    member.Latched = true;
+                    member.GripTime = 0f;
+                }
+                if (member.Latched && (member.GripTime += dt) > GripHoldSeconds)
+                {
+                    member.Latched = false;
+                    member.GripRest = GripRestSeconds;
+                }
+                float strength = member.Latched ? FamilyGripStrength : FightBiteStrength;
+                Leader.Wildlife?.HurtChallenger(strength * member.Size * member.Size * dt);
+                bite = member.Latched ? 0.9f : 0.6f + 0.4f * Mathf.Sin(_time * 10f + index);
+                faceAt = challenger;
+                if (member.Latched)
+                    ring = stats.BodyRadius * member.Size * 0.9f;
+            }
+            else
+            {
+                member.Latched = false;
+            }
+            target = challenger + (away.LengthSquared() > 0.01f ? away.Normalized() : Vector3.Back) * ring;
+        }
+        else if (prey is not null)
         {
             var wildlife = Leader.Wildlife!;
             float ring = prey.Stats.BodyRadius * wildlife.SizeOf(prey) + stats.BodyRadius * member.Size + 0.3f;
@@ -369,7 +501,7 @@ public partial class Herd : Node3D
         // Too far behind to catch up (e.g. the leader respawned): turn up at its place.
         var toTarget = (target - position) with { Y = 0f };
         float distance = toTarget.Length();
-        if (distance > 60f && prey is null)
+        if (distance > 60f && prey is null && !defending)
         {
             Gather();
             return;
@@ -381,13 +513,15 @@ public partial class Herd : Node3D
         float speed = distance < 0.3f ? 0f : Mathf.Min(stats.SprintSpeed, Mathf.Max(0f, distance - 0.3f) * 1.5f + leaderSpeed);
 
         // On the attack, close right in and keep pace with the prey as it runs, rather than easing off short of it.
-        if (prey is not null)
+        if (defending)
+            speed = Mathf.Min(stats.SprintSpeed, distance * 3f);
+        else if (prey is not null)
             speed = Mathf.Min(stats.SprintSpeed, distance * 3f + _preySpeed);
         var wanted = distance > 0.01f ? toTarget / distance * speed : Vector3.Zero;
 
         // Once they've stood about for a while, members sit or lie down when the leader does, one after another rather
         // than all at once, and get up again with it. A member stays put until it is back on its feet.
-        var posture = member.StillTime > 1f + index * 0.7f && prey is null && Meal is null ? Leader.Posture : Posture.Standing;
+        var posture = member.StillTime > 1f + index * 0.7f && prey is null && Meal is null && !defending ? Leader.Posture : Posture.Standing;
         member.Animal.Settle(posture, Leader.PostureChangeSeconds, dt);
         if (member.Animal.IsResting)
             wanted = Vector3.Zero;

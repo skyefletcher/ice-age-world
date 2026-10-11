@@ -14,9 +14,12 @@ namespace IceAgeWorld;
 /// by speed and stamina: the faster wolves close in, but a herd that keeps ahead until the pack is winded gets away.
 /// The player can hunt them too, as a snow leopard: herds and rafts that see it stalking close, or rushing in, flee.
 /// The wolves hunt the player in turn while it's a mammoth, sea otter or bald eagle on the ground, just as they would a
-/// wild one. A lone snow leopard prowls the steppe, resting up between its wanderings, and wolves give any snow leopard,
+/// wild one. A few lone snow leopards prowl the steppe, each resting up between its wanderings, and wolves give any snow leopard,
 /// wild or the player, a wide berth: a pack that finds one close by breaks off whatever it's doing, even a meal, and runs.
 /// A big pack, though, turns the tables and hunts the cat, which runs for the nearest tree and climbs out of reach.
+/// Two wild snow leopards that both come close to the player's grown one may fight each other over it; the loser slinks
+/// off and the winner pairs up with the player's. Once the player's has a mate, a wild one that comes close fights the
+/// mate to the death for its place, and if it wins, goes after the cubs and then pairs up with the player's itself.
 /// Any animal that falls is soon reborn as a youngster beside its group, and grows up.
 /// </summary>
 public partial class Wildlife : Node3D
@@ -34,8 +37,8 @@ public partial class Wildlife : Node3D
     [Export] public int OtterRafts { get; set; } = 2;
     [Export] public int OttersPerRaft { get; set; } = 3;
 
-    /// <summary>Snow leopards live alone, each over a huge range, so there is only one in the world.</summary>
-    [Export] public int SnowLeopards { get; set; } = 1;
+    /// <summary>Snow leopards live alone, each over a huge range of its own, so there are only a few, each roaming apart.</summary>
+    [Export] public int SnowLeopards { get; set; } = 5;
 
     /// <summary>Little groups of arctic hares that nibble the steppe: quick, easy prey for anything that can catch them.</summary>
     [Export] public int HareGroups { get; set; } = 8;
@@ -93,6 +96,33 @@ public partial class Wildlife : Node3D
 
     /// <summary>Health a fighting snow leopard is worn down to before it gives in, rather than fighting to the death: half.</summary>
     private const float RivalGivesIn = 50f;
+
+    /// <summary>
+    /// Chance that two wild snow leopards, both close to the player's grown one, fight over it, as rival cats fight over
+    /// a mate in the mating season. The winner pairs up with the player's; the loser slinks off.
+    /// </summary>
+    [Export] public float SquabbleChance { get; set; } = 0.5f;
+
+    /// <summary>How close to the player's snow leopard both wild ones must be for a fight over it to break out.</summary>
+    [Export] public float SquabbleRange { get; set; } = 20f;
+
+    /// <summary>Seconds after one such meeting before another can start a fight, so each meeting is decided once.</summary>
+    private const float SquabbleCooldown = 30f;
+
+    /// <summary>
+    /// Health a wild snow leopard's clamped jaws take each second from the player's mate or cubs in a fight, against
+    /// <see cref="RivalBite"/> for its ordinary bites; it holds on for <see cref="LatchSeconds"/>, then bites while it
+    /// gets its breath back, as the player's own cat does.
+    /// </summary>
+    private const float LatchBite = 20f;
+    private const float LatchSeconds = 7f;
+    private const float LatchRestSeconds = 4f;
+
+    /// <summary>Seconds left before two wild snow leopards near the player's can fall to fighting again.</summary>
+    private float _squabbleWait;
+
+    /// <summary>The player's snow leopard family whose mate a wild one is fighting, if any.</summary>
+    private Herd? _challenged;
 
     /// <summary>
     /// Health a second a wound left by a grown snow leopard's clamped jaws first bleeds from prey of unit bulk. A big
@@ -173,6 +203,14 @@ public partial class Wildlife : Node3D
 
         /// <summary>Its life, from 100; it falls at 0.</summary>
         public float Health = 100f;
+
+        /// <summary>
+        /// For a snow leopard fighting the player's family: whether it has leapt on its foe and clamped its jaws, seconds
+        /// it has held on, and seconds left getting its breath back before it can leap on again.
+        /// </summary>
+        public bool Latched;
+        public float LatchTime;
+        public float LatchRest;
 
         public bool IsDead => Health <= 0f;
         public float DeadTime;
@@ -283,8 +321,20 @@ public partial class Wildlife : Node3D
         /// </summary>
         public bool? Refuses;
 
-        /// <summary>True once a lone snow leopard has lost a fight with the player's and gives in to pairing up.</summary>
+        /// <summary>
+        /// True once a lone snow leopard has lost a fight with the player's and gives in to pairing up, or has won a
+        /// fight over the player's with another wild one and comes to claim it.
+        /// </summary>
         public bool Beaten;
+
+        /// <summary>The other lone snow leopard it is fighting over the player's, if any.</summary>
+        public Group? Rival;
+
+        /// <summary>True while a lone snow leopard is fighting the player's mate to the death, to take its place.</summary>
+        public bool ChallengesMate;
+
+        /// <summary>True once it has killed the mate and is going after the cubs, before pairing up with the player's.</summary>
+        public bool KillsCubs;
 
         /// <summary>Seconds the prey has been out of reach, up a tree or in the air, while the pack waits below.</summary>
         public float OutOfReach;
@@ -556,8 +606,8 @@ public partial class Wildlife : Node3D
 
         if (Wound(beast, strength / beast.Bulk))
             return true;
-        // A snow leopard fighting the player's stands its ground rather than running.
-        if (!beast.Group.IsPack && !beast.Group.HuntsPlayer)
+        // A snow leopard fighting the player's, or its mate, stands its ground rather than running.
+        if (!beast.Group.IsPack && !beast.Group.HuntsPlayer && !beast.Group.ChallengesMate)
             Scare(beast.Group, from);
         return beast.IsDead;
     }
@@ -746,6 +796,7 @@ public partial class Wildlife : Node3D
     {
         float dt = (float)delta;
         _time += dt;
+        WatchForSquabbles(dt);
 
         foreach (var group in _groups)
         {
@@ -1009,7 +1060,36 @@ public partial class Wildlife : Node3D
 
         if (loner.Fleeing > 0f)
         {
+            EndSquabble(loner);
+            EndChallenge(loner);
             RunFrom(loner, dt);
+        }
+        else if (loner.ChallengesMate)
+        {
+            // Fighting the player's mate for its place: it goes for the mate until one of them is dead, then for each
+            // cub in turn until they're all dead, or it is, or the player leaves as another animal. Move does the biting.
+            var family = _challenged;
+            var position = cat.Body.GlobalPosition;
+            if (!cat.IsDead && family is not null && family.IsVisibleInTree()
+                && (loner.KillsCubs ? family.NearestCub(position) : family.MatePosition) is { } foeAt)
+            {
+                loner.Centre = loner.Goal = foeAt;
+                family.ChallengerAt = position;
+            }
+            else
+            {
+                EndChallenge(loner);
+            }
+        }
+        else if (loner.Rival is { } rival)
+        {
+            // Fighting another wild snow leopard over the player's: it goes for its rival until one gives in, or the
+            // rival is gone, up a tree or fallen. Move does the biting.
+            var other = rival.Members.FirstOrDefault();
+            if (other is null || other.IsDead || other.OnTree || cat.IsDead)
+                EndSquabble(loner);
+            else
+                loner.Centre = loner.Goal = other.Body.GlobalPosition;
         }
         else if (loner.HuntsPlayer)
         {
@@ -1420,6 +1500,8 @@ public partial class Wildlife : Node3D
         // Reborn, a snow leopard makes up its own mind about the player's afresh.
         group.Refuses = null;
         group.HuntsPlayer = false;
+        EndSquabble(group);
+        EndChallenge(group);
         beast.Stamina = 100f;
         beast.IsExhausted = false;
         beast.Size = YoungSize;
@@ -1521,6 +1603,67 @@ public partial class Wildlife : Node3D
         {
             hurry = 1f;
             keepUp = TopSpeed(beast);
+        }
+        else if (group.ChallengesMate && _challenged is { } family
+            && (group.KillsCubs ? family.NearestCub(position) : family.MatePosition) is { } foeAt)
+        {
+            // Fighting the player's mate for its place, to the death, then going after the cubs one by one, as male big
+            // cats do when they take over. With its breath it leaps on and clamps its jaws with the special attack,
+            // pressed against its foe, then bites while it gets its breath back; luck decides who gets the better bites
+            // in. The family fights back the same way (see Herd), and the player can join in.
+            var fromFoe = (position - foeAt) with { Y = 0f };
+            float ring = stats.BodyRadius * beast.Size * 1.6f;
+            hurry = 1f;
+            beast.LatchRest = Mathf.Max(0f, beast.LatchRest - dt);
+            if (fromFoe.Length() < ring + 0.8f)
+            {
+                if (!beast.Latched && beast.LatchRest <= 0f)
+                {
+                    beast.Latched = true;
+                    beast.LatchTime = 0f;
+                }
+                if (beast.Latched && (beast.LatchTime += dt) > LatchSeconds)
+                {
+                    beast.Latched = false;
+                    beast.LatchRest = LatchRestSeconds;
+                }
+                if (beast.Latched)
+                    ring = stats.BodyRadius * beast.Size * 0.9f;
+                eat = beast.Latched ? 0.9f : 0.6f + 0.4f * Mathf.Sin(_time * 10f);
+                float damage = (beast.Latched ? LatchBite : RivalBite) * _rng.RandfRange(0.5f, 1.5f) * dt;
+                if (group.KillsCubs)
+                    family.HurtNearestCub(position, damage);
+                else if (family.HurtMate(damage))
+                    group.KillsCubs = true;
+            }
+            else
+            {
+                beast.Latched = false;
+            }
+            target = foeAt + (fromFoe.LengthSquared() > 0.01f ? fromFoe.Normalized() : Vector3.Back) * ring;
+        }
+        else if (group.Kind == Kind.Loner && group.Rival?.Members.FirstOrDefault() is { } other)
+        {
+            // Two wild snow leopards fighting over the player's circle and bite each other. Neither fights to the death:
+            // the first worn down to half gives in and slinks off, and the winner goes to claim the player's cat.
+            var fromOther = (position - other.Body.GlobalPosition) with { Y = 0f };
+            float ring = (other.Animal.Stats.BodyRadius * other.Size + stats.BodyRadius * beast.Size) * 0.8f;
+            target = other.Body.GlobalPosition + (fromOther.LengthSquared() > 0.01f ? fromOther.Normalized() : Vector3.Back) * ring;
+            hurry = 1f;
+            keepUp = (other.Velocity with { Y = 0f }).Length();
+            if (fromOther.Length() < ring + 0.8f)
+            {
+                // Luck decides who gets the better bites in, so either cat can win.
+                other.Health -= RivalBite * _rng.RandfRange(0.5f, 1.5f) * dt;
+                eat = 0.6f + 0.4f * Mathf.Sin(_time * 10f);
+                if (other.Health <= RivalGivesIn)
+                {
+                    other.Health = RivalGivesIn;
+                    EndSquabble(group);
+                    Scare(other.Group, position, seconds: 15f);
+                    group.Beaten = true;
+                }
+            }
         }
         else if (group.Kind == Kind.Loner && group.HuntsPlayer)
         {
@@ -1776,7 +1919,7 @@ public partial class Wildlife : Node3D
     /// is one: a mate for the player's snow leopard.
     /// </summary>
     public Animal? MateNear(Vector3 at, float range) =>
-        _groups.Where(g => g.Kind == Kind.Loner).SelectMany(g => g.Members)
+        _groups.Where(g => g.Kind == Kind.Loner && g.Rival is null).SelectMany(g => g.Members)
             .FirstOrDefault(c => c.Animal is SnowLeopard && !c.IsDead && !c.OnTree && c.Body.GlobalPosition.DistanceTo(at) < range)
             ?.Animal;
 
@@ -1798,6 +1941,98 @@ public partial class Wildlife : Node3D
         return group.Refuses == false;
     }
 
+    /// <summary>True while two wild snow leopards are fighting over the player's, or one is fighting its mate.</summary>
+    public bool FightingOverPlayer => _groups.Any(g => g.Rival is not null || g.ChallengesMate);
+
+    /// <summary>
+    /// With no mate yet, two wild snow leopards both close to the player's grown one may fall to fighting over it, as
+    /// rival cats fight over a mate; each meeting is decided once, then there's a wait before the next. Once it has a
+    /// mate, any wild one that comes close challenges the mate for its place and fights it to the death.
+    /// </summary>
+    private void WatchForSquabbles(float dt)
+    {
+        _squabbleWait = Mathf.Max(0f, _squabbleWait - dt);
+        if (Player is not { } player || player.IsDead || player.Animal is not SnowLeopard
+            || !player.IsGrownUp || !player.OnTheGround || FightingOverPlayer)
+            return;
+
+        var near = _groups
+            .Where(g => g.Kind == Kind.Loner && !g.HuntsPlayer && !g.Beaten && g.Fleeing <= 0f && g.Members.Count > 0)
+            .Select(g => g.Members[0])
+            .Where(c => c.Animal is SnowLeopard && !c.IsDead && !c.OnTree && c.Refuge is null
+                && c.Body.GlobalPosition.DistanceTo(player.GlobalPosition) < SquabbleRange)
+            .Take(2)
+            .ToList();
+
+        if (player.Family is { HasMate: true } family)
+        {
+            if (near.Count == 0)
+                return;
+            near[0].Group.ChallengesMate = true;
+            near[0].Group.Linger = 0f;
+            _challenged = family;
+            return;
+        }
+
+        if (near.Count < 2 || _squabbleWait > 0f)
+            return;
+
+        _squabbleWait = SquabbleCooldown;
+        if (_rng.Randf() >= SquabbleChance)
+            return;
+        var (a, b) = (near[0].Group, near[1].Group);
+        a.Rival = b;
+        b.Rival = a;
+        a.Linger = b.Linger = 0f;
+    }
+
+    /// <summary>True while a wild snow leopard that has killed the player's mate is going after its cubs.</summary>
+    public bool KillingCubs => _groups.Any(g => g.KillsCubs);
+
+    /// <summary>
+    /// The player's family's bites take <paramref name="damage"/> from the wild snow leopard fighting it, if there is one.
+    /// </summary>
+    public void HurtChallenger(float damage)
+    {
+        if (_groups.FirstOrDefault(g => g.ChallengesMate)?.Members.FirstOrDefault() is not { IsDead: false } cat)
+            return;
+        cat.Health -= damage;
+        Spill(cat);
+    }
+
+    /// <summary>
+    /// Stops a lone snow leopard's fight with the player's family, if it was fighting it. One that killed the mate and
+    /// is still alive has won its place, whether or not it got all the cubs, and pairs up with the player's.
+    /// </summary>
+    private void EndChallenge(Group group)
+    {
+        if (!group.ChallengesMate)
+            return;
+        if (group.KillsCubs && group.Members.FirstOrDefault() is { IsDead: false } winner)
+        {
+            group.Beaten = true;
+            winner.Latched = false;
+        }
+        group.ChallengesMate = false;
+        group.KillsCubs = false;
+        group.Centre = group.Goal = group.Members.FirstOrDefault()?.Body.GlobalPosition ?? group.Centre;
+        if (_challenged is { } family)
+            family.ChallengerAt = null;
+        _challenged = null;
+    }
+
+    /// <summary>Stops a lone snow leopard's fight over the player's, for it and its rival both.</summary>
+    private static void EndSquabble(Group group)
+    {
+        if (group.Rival is { } rival)
+        {
+            rival.Rival = null;
+            rival.Centre = rival.Goal = rival.Members.FirstOrDefault()?.Body.GlobalPosition ?? rival.Centre;
+        }
+        group.Rival = null;
+        group.Centre = group.Goal = group.Members.FirstOrDefault()?.Body.GlobalPosition ?? group.Centre;
+    }
+
     /// <summary>A wild snow leopard the player's has beaten in a fight, ready to pair up with it, if there is one.</summary>
     public Animal? BeatenRival() =>
         _groups.FirstOrDefault(g => g.Kind == Kind.Loner && g.Beaten)?.Members.FirstOrDefault(c => !c.IsDead)?.Animal;
@@ -1813,6 +2048,8 @@ public partial class Wildlife : Node3D
         beast.Group.Members.Remove(beast);
         if (beast.Group.Members.Count == 0)
             _groups.Remove(beast.Group);
+        EndSquabble(beast.Group);
+        EndChallenge(beast.Group);
         foreach (var group in _groups.Where(g => g.Prey == beast))
         {
             group.Prey = null;
