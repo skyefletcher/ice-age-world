@@ -16,6 +16,13 @@ public partial class BaldEagle : Animal
 {
     private const int Seed = 41;
 
+    /// <summary>
+    /// How much bigger than a real bald eagle this one is drawn: an ice-age giant with wings some four metres across,
+    /// like the great eagles that took prey far bigger than any eagle alive, and bigger than the giant hares it hunts.
+    /// The model is built to a real eagle's measurements and scaled up whole.
+    /// </summary>
+    private const float BodyScale = 2f;
+
     /// <summary>Height of the hips above the toes; the body pivots here between standing upright and flying level.</summary>
     private const float HipHeight = 0.245f;
 
@@ -60,6 +67,15 @@ public partial class BaldEagle : Animal
     /// <summary>0 wings spread, 1 folded against the body.</summary>
     private float _fold = 1f;
 
+    /// <summary>0 legs tucked back in flight, 1 reaching down to hold prey in the talons.</summary>
+    private float _clutch;
+
+    /// <summary>True while the eagle carries something in its talons, so it holds its legs down under it in flight.</summary>
+    public bool Clutching { get; set; }
+
+    /// <summary>Where the talons close, between the two feet: where anything the eagle carries is held.</summary>
+    public Vector3 Talons => (_feet[0].GlobalPosition + _feet[1].GlobalPosition) / 2f;
+
     public override string DisplayName => "Bald eagle";
     public override string YoungName => "Bald eaglet";
 
@@ -68,15 +84,15 @@ public partial class BaldEagle : Animal
         Scores = new() { JumpHeight = 2, JumpLength = 2, LandSpeed = 3, WaterSpeed = 3, Agility = 2, Stamina = 9, FlightAgility = 10 },
         Abilities = Ability.Fly | Ability.Hunt,
         FlySpeed = 16f,
-        FloatDepth = 0.15f,
-        WadeDepth = 0.12f,
-        MouthDistance = 0.4f,
-        EatReach = 0.3f,
+        FloatDepth = 0.15f * BodyScale,
+        WadeDepth = 0.12f * BodyScale,
+        MouthDistance = 0.4f * BodyScale,
+        EatReach = 0.3f * BodyScale,
         CanGraze = false,
-        BodyRadius = 0.22f,
-        BodyHeight = 0.7f,
-        CameraHeight = 0.55f,
-        CameraDistance = 3.2f,
+        BodyRadius = 0.22f * BodyScale,
+        BodyHeight = 0.7f * BodyScale,
+        CameraHeight = 0.55f * BodyScale,
+        CameraDistance = 3.2f * BodyScale,
     };
 
     public override void _Ready() => Build();
@@ -103,16 +119,21 @@ public partial class BaldEagle : Animal
         _body.Position = new Vector3(0, hips, 0);
         _body.Rotation = new Vector3(pitch, 0, 0);
 
+        _clutch = Mathf.MoveToward(_clutch, Clutching ? 1f : 0f, dt * 4f);
+        float clutch = Mathf.SmoothStep(0f, 1f, _clutch);
+
         // The ankle bends backwards to lower the hips, and the foot stays flat.
         float fold = FoldToReach(_shanks[0].Position, _feet[0].Position, hips - FootHeight);
 
         for (int i = 0; i < 2; i++)
         {
             float swing = (i == 0 ? step : -step) * 0.4f;
-            // Legs hang straight down under an upright body, and trail back under the tail in flight.
-            _legs[i].Rotation = new Vector3(Mathf.Lerp(-pitch + swing, -1.35f, air) - fold, 0, 0);
+            // Legs hang straight down under an upright body, and trail back under the tail in flight. Carrying prey,
+            // they reach down and a little forward under the body instead, toes curled to clench it in the talons.
+            float flying = Mathf.Lerp(-1.35f, 0.15f, clutch);
+            _legs[i].Rotation = new Vector3(Mathf.Lerp(-pitch + swing, flying, air) - fold, 0, 0);
             _shanks[i].Rotation = new Vector3(fold * 2f, 0, 0);
-            _feet[i].Rotation = new Vector3(-fold, 0, 0);
+            _feet[i].Rotation = new Vector3(-fold + clutch * air * 0.5f, 0, 0);
         }
 
         // The head stays level whatever the body does, and dips to drink.
@@ -157,6 +178,7 @@ public partial class BaldEagle : Animal
 
     private void Build()
     {
+        Scale = Vector3.One * BodyScale;
         var rng = new RandomNumberGenerator { Seed = Seed };
         var plumage = ProceduralTextures.Fur(Seed, new Color(0.1f, 0.065f, 0.04f), new Color(0.26f, 0.17f, 0.1f), 6f);
         var whitePlumage = ProceduralTextures.Fur(Seed + 1, new Color(0.84f, 0.84f, 0.82f), new Color(0.98f, 0.98f, 0.97f), 6f);

@@ -50,8 +50,8 @@ public partial class Player
         Spurt();
 
         // The player's pack or family turns on whatever is biting it, however big a pack or bear it is.
-        if (by is not null && !IsDead && _herds.TryGetValue(Animal, out var family) && family.Attack(by))
-            Announce($"Your {family.Word} turns on the {by.DisplayName.ToLower()} to save you!", 3f);
+        if (by is not null && !IsDead && _herds.TryGetValue(Animal, out var family))
+            family.Attack(by);
     }
 
     /// <summary>Takes <paramref name="damage"/> off the animal's health, e.g. from a bite or a bad fall; a mammoth takes far less.</summary>
@@ -116,7 +116,6 @@ public partial class Player
         Velocity = Velocity with { Y = Mathf.Min(Velocity.Y, 0f) };
         StopHunting();
         _courtship = 0f;
-        Courtship = null;
         _mode = Mode.Ground;
         Animal.IsFlying = Animal.IsClimbing = false;
         _feeding = Feeding.None;

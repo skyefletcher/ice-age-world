@@ -24,6 +24,9 @@ public partial class Reindeer : Quadruped
     private const float HeadScale = 1.2f;
     private const float AntlerScale = 1.05f;
 
+    /// <summary>How big the furry muzzle and nostrils are drawn against a real reindeer's broad, soft nose: smaller and neater.</summary>
+    private const float NoseScale = 0.75f;
+
     private static readonly Color Back = new(0.42f, 0.35f, 0.28f);
     private static readonly Color Mane = new(0.9f, 0.87f, 0.8f);
     private static readonly Color Belly = new(0.8f, 0.76f, 0.7f);
@@ -167,10 +170,10 @@ public partial class Reindeer : Quadruped
         };
         var faceAt = new Vector3(0, -0.03f, -0.16f);
         Attach(Head, "Face", Ellipsoid(u => face(u) + faceAt, 20, 12, coat, faceColour));
-        var muzzleAt = new Vector3(0, -0.045f, -0.3f);
-        var muzzle = new Vector3(0.06f, 0.058f, 0.065f);
+        var muzzleAt = new Vector3(0, -0.04f, -0.285f);
+        var muzzle = new Vector3(0.06f, 0.058f, 0.065f) * NoseScale;
         Attach(Head, "Muzzle", Ellipsoid(muzzle, 16, 12, coat, (p, n) => Muzzle), muzzleAt);
-        Attach(Head, "Chin", Ellipsoid(new Vector3(0.04f, 0.022f, 0.05f), 12, 8, coat, (p, n) => Muzzle), new Vector3(0, -0.09f, -0.27f));
+        Attach(Head, "Chin", Ellipsoid(new Vector3(0.04f, 0.022f, 0.05f) * NoseScale, 12, 8, coat, (p, n) => Muzzle), new Vector3(0, -0.08f, -0.26f));
         Attach(Head, "HeadFur", Strands(rng, OnShape(rng, u => face(u) + faceAt, 500, u => u.Y > -0.4f), new Vector3(0, -0.1f, 0.8f),
             0.012f, 0.022f, FurRoot, FurTip, Hair, width: 0.013f, colouring: faceFur));
         Attach(Head, "SkullFur", Strands(rng, OnShape(rng, u => u * skull, 400, u => u.Z > -0.6f), CoatDrift,
@@ -184,9 +187,9 @@ public partial class Reindeer : Quadruped
             float side = i == 0 ? -1f : 1f;
 
             // Comma-shaped nostrils on the front of the muzzle, angled in towards each other.
-            var nostril = Pivot(Head, "Nostril", muzzleAt + new Vector3(side * 0.03f, 0.015f, -0.058f));
+            var nostril = Pivot(Head, "Nostril", muzzleAt + new Vector3(side * 0.03f, 0.015f, -0.058f) * NoseScale);
             nostril.Rotation = new Vector3(0, 0, side * 0.5f);
-            Attach(nostril, "Slit", Ellipsoid(new Vector3(0.008f, 0.017f, 0.006f), 8, 6, horn));
+            Attach(nostril, "Slit", Ellipsoid(new Vector3(0.008f, 0.017f, 0.006f) * NoseScale, 8, 6, horn));
 
             Eye(Head, new Vector3(side * 0.07f, 0.025f, -0.06f), new Vector3(0, -side * 1.0f, 0), 0.016f, new Color(0.15f, 0.09f, 0.05f), 0.75f);
 
@@ -204,38 +207,39 @@ public partial class Reindeer : Quadruped
     }
 
     /// <summary>
-    /// One antler, as a caribou's grow: a long, slender beam that leaves the skull going back and out, sweeps up in a
-    /// wide C and curves forward again at the top, where it flattens into a palm fringed with points. Low down a bez
-    /// tine reaches forward, itself flattened and pointed at the tip; halfway up a short back tine points behind. On one
+    /// One antler, as a big bull caribou's grow: a thick, heavy beam that leaves the skull going back and out, sweeps up
+    /// and outward in a wide C and curves forward again at the top, where it broadens gradually into a palm fringed
+    /// with long points, the way the beam itself flattens rather than ending in a separate plate. Low down a bez tine
+    /// reaches forward and flattens into a little palm of its own; halfway up a short back tine points behind. On one
     /// side only, the brow tine grows into the "shovel": a flat, upright, toothed plate reaching forward over the face.
-    /// The other side's brow tine is a plain spike. The antler is darker at the base and pales towards the tips.
+    /// The other side's brow tine is a plain spike. A knobbly burr rings the base where it grows from the skull.
     /// </summary>
     private void BuildAntler(float side, Material antler, RandomNumberGenerator rng, bool shovel)
     {
         var root = Pivot(Head, "Antler", new Vector3(side * 0.045f, 0.085f, 0.02f));
         root.Scale = Vector3.One * (AntlerScale / HeadScale);
-        var tips = new StandardMaterial3D { AlbedoColor = new Color(0.82f, 0.76f, 0.64f), Roughness = 0.7f };
+        Attach(root, "Burr", Ellipsoid(new Vector3(0.05f, 0.02f, 0.05f), 10, 6, antler));
 
-        // The main beam: a cubic curve back, out and up, and forward at the top.
+        // The main beam: a cubic curve back, out and up, and forward at the top, spreading wide apart.
         var p0 = Vector3.Zero;
-        var p1 = new Vector3(side * 0.12f, 0.26f, 0.34f);
-        var p2 = new Vector3(side * 0.38f, 0.8f, 0.34f);
-        var p3 = new Vector3(side * 0.32f, 1.04f, -0.1f);
+        var p1 = new Vector3(side * 0.2f, 0.22f, 0.32f);
+        var p2 = new Vector3(side * 0.55f, 0.8f, 0.4f);
+        var p3 = new Vector3(side * 0.42f, 0.92f, -0.34f);
         Vector3 Beam(float t)
         {
             float s = 1f - t;
             return p0 * s * s * s + p1 * 3f * s * s * t + p2 * 3f * s * t * t + p3 * t * t * t;
         }
-        const int samples = 12;
+        const int samples = 14;
         var path = new Vector3[samples];
         var radii = new float[samples];
         for (int k = 0; k < samples; k++)
         {
-            float t = k / (float)(samples - 1) * 0.92f;
+            float t = k / (float)(samples - 1) * 0.86f;
             path[k] = Beam(t);
-            radii[k] = Mathf.Lerp(0.028f, 0.014f, t);
+            radii[k] = Mathf.Lerp(0.042f, 0.022f, t);
         }
-        Attach(root, "Beam", Tube(path, radii, 8, antler, capEnd: false));
+        Attach(root, "Beam", Tube(path, radii, 10, antler, capEnd: false));
 
         // Brow tine: forward over the face, from just above the burr.
         var brow = Beam(0.04f);
@@ -244,60 +248,64 @@ public partial class Reindeer : Quadruped
             // The shovel: the brow tine runs forward, then turns down in front of the forehead and broadens into an
             // upright blade, thin from side to side, its lower edge toothed with short points.
             var end = brow + new Vector3(-side * 0.015f, -0.01f, -0.2f);
-            Tine(root, brow, brow + new Vector3(0, 0.05f, -0.12f), end, 0.018f, antler);
+            Tine(root, brow, brow + new Vector3(0, 0.05f, -0.12f), end, 0.022f, antler);
             var blade = Pivot(root, "Shovel", end);
             blade.Basis = Basis.LookingAt(new Vector3(0, -1f, -0.35f).Normalized(), Vector3.Forward);
-            Palm(blade, 0.13f, 0.06f, 0.01f, 5, 0.02f, 0.045f, antler, rng);
+            Palm(blade, 0.16f, 0.08f, 0.012f, 5, 0.025f, 0.05f, antler, rng);
         }
         else
         {
-            Tine(root, brow, brow + new Vector3(side * 0.01f, 0.06f, -0.07f), brow + new Vector3(side * 0.02f, 0.14f, -0.14f), 0.014f, antler);
+            Tine(root, brow, brow + new Vector3(side * 0.01f, 0.06f, -0.07f), brow + new Vector3(side * 0.02f, 0.16f, -0.16f), 0.018f, antler);
         }
 
         // Bez tine: forward and up from low on the beam, flattening into a small palm with a few points.
-        var bez = Beam(0.24f);
-        var bezEnd = bez + new Vector3(side * 0.06f, 0.12f, -0.2f);
-        Tine(root, bez, bez + new Vector3(side * 0.04f, 0.03f, -0.1f), bezEnd, 0.016f, antler);
-        var bezPalm = Pivot(root, "BezPalm", bezEnd);
+        var bez = Beam(0.22f);
+        var bezEnd = bez + new Vector3(side * 0.06f, 0.1f, -0.18f);
+        Tine(root, bez, bez + new Vector3(side * 0.04f, 0.03f, -0.09f), bezEnd, 0.02f, antler);
+        var bezPalm = Pivot(root, "BezPalm", bezEnd - (bezEnd - bez).Normalized() * 0.03f);
         bezPalm.Basis = Basis.LookingAt((bezEnd - bez).Normalized(), Vector3.Up);
-        Palm(bezPalm, 0.1f, 0.045f, 0.009f, 3, 0.05f, 0.09f, tips, rng);
+        Palm(bezPalm, 0.17f, 0.038f, 0.011f, 4, 0.05f, 0.09f, antler, rng);
 
         // Back tine: a short point behind, halfway up.
-        var back = Beam(0.55f);
-        Tine(root, back, back + new Vector3(side * 0.03f, 0.05f, 0.08f), back + new Vector3(side * 0.05f, 0.08f, 0.17f), 0.012f, tips);
+        var back = Beam(0.52f);
+        Tine(root, back, back + new Vector3(side * 0.03f, 0.05f, 0.08f), back + new Vector3(side * 0.05f, 0.09f, 0.18f), 0.016f, antler);
 
-        // The top palm: the beam's end flattens into a broad plate, facing out sideways, fringed with points.
-        var crown = Beam(0.92f);
+        // The top palm: the beam broadens into a long plate, facing out sideways, fringed with long points.
+        var crown = Beam(0.8f);
         var top = Pivot(root, "TopPalm", crown);
-        top.Basis = Basis.LookingAt((Beam(0.96f) - Beam(0.86f)).Normalized(), Vector3.Up);
-        Palm(top, 0.14f, 0.07f, 0.012f, 4, 0.09f, 0.18f, tips, rng);
+        top.Basis = Basis.LookingAt((Beam(0.95f) - Beam(0.8f)).Normalized(), Vector3.Up);
+        Palm(top, 0.36f, 0.05f, 0.016f, 5, 0.09f, 0.17f, antler, rng);
     }
 
     /// <summary>
-    /// A palm: a flat blade of antler, thin in its own X, running <paramref name="length"/> out along its own -Z from
-    /// the pivot and widening towards its far end like a hand, with <paramref name="points"/> tines fanning out of that
-    /// end, from straight on round to upward (its +Y), each between <paramref name="shortest"/> and
-    /// <paramref name="longest"/> long, like fingers.
+    /// A palm: a long, flat blade of antler, thin in its own X, running <paramref name="length"/> out along its own -Z
+    /// from the pivot, narrow where it leaves the beam and broadening along its length, as a caribou's beam flattens.
+    /// <paramref name="points"/> tines rise from its upper edge (its +Y), spaced along it: the first ones stand up,
+    /// and each one further out leans further forward, until the last carries on straight out from the end of the
+    /// blade. Each is between <paramref name="shortest"/> and <paramref name="longest"/> long, curving gently up.
     /// </summary>
     private static void Palm(Node3D pivot, float length, float width, float thickness, int points, float shortest, float longest,
         Material antler, RandomNumberGenerator rng)
     {
-        var middle = new Vector3(0, width * 0.25f, -length * 0.5f);
+        var middle = new Vector3(0, 0, -length * 0.5f);
+        // How wide the blade is at a point along it, 0 at the beam and 1 at the far end.
+        float Breadth(float along) => width * Mathf.Lerp(0.45f, 1f, Mathf.SmoothStep(0f, 0.7f, along));
         Func<Vector3, Vector3> blade = u =>
         {
-            float far = Mathf.Clamp((1f - u.Z) * 0.5f, 0f, 1f);
-            return new Vector3(u.X * thickness, u.Y * width * Mathf.Lerp(0.35f, 1f, far), u.Z * length * 0.5f);
+            float along = Mathf.Clamp((1f - u.Z) * 0.5f, 0f, 1f);
+            return new Vector3(u.X * thickness, u.Y * Breadth(along), u.Z * length * 0.5f);
         };
-        Attach(pivot, "Palm", Ellipsoid(u => blade(u) + middle, 14, 8, antler));
+        Attach(pivot, "Palm", Ellipsoid(u => blade(u) + middle, 16, 8, antler));
         for (int t = 0; t < points; t++)
         {
-            float a = Mathf.Lerp(-0.25f, 1.25f, t / (float)Mathf.Max(1, points - 1)) + rng.RandfRange(-0.1f, 0.1f);
-            var edge = middle + new Vector3(0, Mathf.Sin(a) * width * 0.85f, -Mathf.Cos(a) * length * 0.45f);
-            var direction = new Vector3(rng.RandfRange(-0.15f, 0.15f), Mathf.Sin(a), -Mathf.Cos(a)).Normalized();
-            float reach = rng.RandfRange(shortest, longest);
+            float along = Mathf.Lerp(0.3f, 0.97f, t / (float)Mathf.Max(1, points - 1)) + rng.RandfRange(-0.04f, 0.04f);
+            float lean = Mathf.Lerp(0.15f, 1.35f, along);
+            var edge = new Vector3(0, Breadth(along) * 0.8f * Mathf.Cos(Mathf.Max(0f, along - 0.85f) * 6f), -length * along);
+            var direction = new Vector3(rng.RandfRange(-0.12f, 0.12f), Mathf.Cos(lean), -Mathf.Sin(lean)).Normalized();
+            float reach = rng.RandfRange(shortest, longest) * Mathf.Lerp(0.8f, 1.15f, along);
             var tip = edge + direction * reach;
-            Attach(pivot, "Point", Tube([edge, edge.Lerp(tip, 0.5f) + Vector3.Up * reach * 0.08f, tip],
-                [thickness * 1.3f, thickness * 0.9f, thickness * 0.3f], 6, antler, capEnd: true));
+            Attach(pivot, "Point", Tube([edge, edge.Lerp(tip, 0.5f) + Vector3.Up * reach * 0.1f, tip],
+                [thickness * 1.4f, thickness, thickness * 0.35f], 6, antler, capEnd: true));
         }
     }
 

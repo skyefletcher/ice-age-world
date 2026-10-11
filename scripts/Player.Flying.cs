@@ -64,7 +64,7 @@ public partial class Player
         // Wings bite harder the faster the bird flies, so it picks up speed when diving and loses it when climbing.
         float cruise = direction != Vector3.Zero ? Stats.FlySpeed : Stats.FlySpeed * 0.6f;
         float targetSpeed = diving ? Stats.FlySpeed * DiveSpeedFactor : cruise;
-        float climb = flapping ? FlapClimbRate : diving ? -DiveSinkRate : -GlideSinkRate;
+        float climb = flapping ? FlapClimbRate * (IsLifting ? LiftClimb : 1f) : diving ? -DiveSinkRate : -GlideSinkRate;
 
         float ground = Terrain?.GroundBelow(GlobalPosition) ?? 0f;
         if (GlobalPosition.Y - ground > MaxFlightHeight)
@@ -79,7 +79,8 @@ public partial class Player
         velocity = new Vector3(horizontal.X, Mathf.MoveToward(velocity.Y, climb, pull * dt), horizontal.Z);
 
         UpdateNeeds(dt, exerting: flapping);
-        UpdateStamina(dt, effort: flapping ? 1f : 0f);
+        // Live prey in the talons is a heavy, kicking load, tiring even to glide with.
+        UpdateStamina(dt, effort: (flapping ? 1f : 0f) + (IsLifting ? LiftEffort : 0f));
 
         // Lean into turns and tip the nose with the climb or dive, smoothly so the bird doesn't twitch.
         float bank = Mathf.Clamp(turn * 0.35f, -0.9f, 0.9f);
@@ -109,6 +110,8 @@ public partial class Player
 
     private void Land()
     {
+        // Touching down, the bird sets live prey down on the ground and lets it go.
+        DropLifted();
         _mode = Mode.Ground;
         Animal.IsFlying = false;
         Animal.Flap = Animal.Dive = 0f;

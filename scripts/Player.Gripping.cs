@@ -72,8 +72,8 @@ public partial class Player
         Wildlife!.Grip(prey, true, pins: !_onBack);
         if (Wildlife.Bite(prey, BiteStrength * GripLandingBite * Size * Size, GlobalPosition))
             LetGo();
-        else if (_herds.TryGetValue(Animal, out var family) && family.Attack(prey))
-            Announce($"Your {family.Word} joins the attack on the {prey.DisplayName.ToLower()}!", 3f);
+        else if (_herds.TryGetValue(Animal, out var family))
+            family.Attack(prey);
     }
 
     /// <summary>
@@ -83,14 +83,12 @@ public partial class Player
     private void HoldOn(float dt)
     {
         var prey = _gripping!;
-        string name = prey.DisplayName.ToLower();
 
         if (_ridingDown >= 0f)
         {
             // Riding the kill down: the cat keeps its hold until the body is on the ground, then springs off it.
             _ridingDown += dt;
             UpdateNeeds(dt, exerting: false);
-            ActionPrompt = $"The {name} is down!";
             if ((prey.Dead >= 1f && _ridingDown > RideDownSeconds) || _ridingDown > RideDownSeconds * 4f)
             {
                 LetGo();
@@ -107,7 +105,6 @@ public partial class Player
 
             UpdateNeeds(dt, exerting: true);
             UpdateStamina(dt, effort: GripEffort);
-            ActionPrompt = $"Holding on to the {name}! G or Space to let go";
 
             // The more of the cat there is, the harder its jaws clamp, as with a bite.
             if (Wildlife!.Bite(prey, GripStrength * Size * Size * dt, GlobalPosition))

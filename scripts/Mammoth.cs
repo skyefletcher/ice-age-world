@@ -18,6 +18,13 @@ public partial class Mammoth : Animal
     /// thick hide, a deep coat and a layer of fat, it takes a whole pack, or the polar bear, a long while to bring down.
     /// </summary>
     public const float Toughness = 5f;
+
+    /// <summary>
+    /// How much bigger than a real woolly mammoth this one is drawn: a giant over five metres tall at the hump, standing
+    /// over every other animal on the steppe. The model is built to a real mammoth's measurements and scaled up whole.
+    /// </summary>
+    private const float BodyScale = 1.5f;
+
     private const int TrunkSegments = 4;
     private const float TrunkSegmentLength = 0.6f;
     // The neck bends from deep in the shoulders, so a smaller angle than at the jaw brings the head just as low.
@@ -56,17 +63,17 @@ public partial class Mammoth : Animal
         Scores = new() { JumpHeight = 1, JumpLength = 1, LandSpeed = 6, WaterSpeed = 4, Agility = 3, Stamina = 9 },
         Abilities = Ability.Herd,
         Companions = 4,
-        FloatDepth = 2.2f,
-        WadeDepth = 0.6f,
-        MouthDistance = 3f,
-        EatReach = 2f,
+        FloatDepth = 2.2f * BodyScale,
+        WadeDepth = 0.6f * BodyScale,
+        MouthDistance = 3f * BodyScale,
+        EatReach = 2f * BodyScale,
         CanGraze = true,
-        BodyRadius = 1.3f,
-        BodyHeight = 3.6f,
+        BodyRadius = 1.3f * BodyScale,
+        BodyHeight = 3.6f * BodyScale,
         // Its high, humped back and thick coat come right up to the top, so a cat riding it lies up on the hump.
         BackHeight = 1f,
-        CameraHeight = 3f,
-        CameraDistance = 11f,
+        CameraHeight = 3f * BodyScale,
+        CameraDistance = 11f * BodyScale,
     };
 
     public override void _Ready() => Build();
@@ -133,6 +140,7 @@ public partial class Mammoth : Animal
 
     private void Build()
     {
+        Scale = Vector3.One * BodyScale;
         var rng = new RandomNumberGenerator { Seed = Seed };
         var hide = ProceduralTextures.Fur(Seed, new Color(0.2f, 0.11f, 0.05f), new Color(0.5f, 0.32f, 0.17f), 0.7f);
         var ivory = ProceduralTextures.Ivory(Seed + 1);

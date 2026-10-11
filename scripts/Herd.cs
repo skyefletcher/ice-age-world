@@ -36,9 +36,6 @@ public partial class Herd : Node3D
     /// </summary>
     private const int MaxFamily = 3;
 
-    /// <summary>What the leader calls its companions in news about them.</summary>
-    public string Word => IsFamily ? "family" : _isHerd ? "herd" : "pack";
-
     /// <summary>True once there is anyone travelling with the leader.</summary>
     public bool Any => _members.Count > 0;
 
@@ -298,10 +295,7 @@ public partial class Herd : Node3D
             member.Body.Scale = Vector3.One * member.Size;
             // Everyone but the mate is a cub.
             if (member.Size >= 1f && IsFamily && _members.Count - 1 < MaxFamily)
-            {
                 Recruit();
-                Leader.Announce($"Your cub is all grown up, and a new {Leader.Animal.YoungName.ToLower()} is born!");
-            }
         }
         var position = member.Body.GlobalPosition;
 

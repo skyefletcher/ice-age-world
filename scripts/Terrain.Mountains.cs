@@ -29,7 +29,7 @@ public partial class Terrain
 
     /// <summary>
     /// Picks where the ranges stand, well away from the meadow in the middle, where the player starts, clear of the big
-    /// lake and of each other, then heaps rocky hills together in each: the tallest in the middle, lower ones crowding
+    /// lake, the cliff and each other, then heaps rocky hills together in each: the tallest in the middle, lower ones crowding
     /// round it so their slopes run into one another, as hills do in a range worn down by the ice.
     /// </summary>
     private void PlaceMountains()
@@ -69,7 +69,8 @@ public partial class Terrain
         {
             var centre = new Vector2(rng.RandfRange(-reach, reach), rng.RandfRange(-reach, reach));
             bool clear = centre.Length() > RangeSpread + 110f
-                && centre.DistanceTo(BigLakeCentre) > RangeSpread + BigLakeRadius + BigLakeShore + 20f;
+                && centre.DistanceTo(BigLakeCentre) > RangeSpread + BigLakeRadius + BigLakeShore + 20f
+                && DistanceFromCliff(centre) > RangeSpread + CliffDipLength * 0.5f;
             foreach (var other in ranges)
                 clear &= centre.DistanceTo(other) > RangeSpread * 2.6f;
             if (clear)
@@ -94,6 +95,9 @@ public partial class Terrain
                 if (Mathf.Abs(centre.X) > limit || Mathf.Abs(centre.Y) > limit)
                     continue;
                 if (centre.Length() < radius + 80f || centre.DistanceTo(BigLakeCentre) < radius + BigLakeRadius + BigLakeShore)
+                    continue;
+                // A hill heaped against the cliff would bury its face in a slope.
+                if (DistanceFromCliff(centre) < radius * 0.8f + CliffDipLength * 0.5f)
                     continue;
                 // Close enough that their slopes merge, but not so close that two hills stand as one.
                 bool crowded = false;

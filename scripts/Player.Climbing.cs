@@ -29,6 +29,12 @@ public partial class Player
     /// <summary>Which side of the trunk the animal clings to, as an angle about the trunk.</summary>
     private float _climbAngle;
 
+    /// <summary>
+    /// True once the animal is climbing down, which it does head first, as snow leopards and other cats with flexible
+    /// ankles do, rather than backing down tail first. It turns head up again to climb.
+    /// </summary>
+    private bool _headFirst;
+
     /// <summary>0 while clinging to the top of the trunk, 1 once standing on the treetop.</summary>
     private float _hop;
 
@@ -71,6 +77,7 @@ public partial class Player
         _mode = Mode.Climbing;
         _climbHeight = Mathf.Max(0f, GlobalPosition.Y - tree.Transform.Origin.Y);
         _climbAngle = Mathf.Atan2(-toTrunk.Z, -toTrunk.X);
+        _headFirst = false;
         _hop = 0f;
         Velocity = Vector3.Zero;
         Animal.IsClimbing = true;
@@ -98,9 +105,6 @@ public partial class Player
         }
 
         int? branch = BranchBeside();
-        ActionPrompt = branch is null
-            ? "W / S to climb up or down, A / D to go round, Space to leap off"
-            : "E to step out onto the branch, W / S / A / D to climb, Space to leap off";
         if (Input.IsActionJustPressed(InputSetup.Jump))
         {
             LeapOff(outward, Stats.JumpBoost);
@@ -142,10 +146,17 @@ public partial class Player
             _treetopYaw = Yaw(-outward);
         }
 
-        // Cling on facing the bark, body tipped up the trunk so the paws grip it.
+        // Cling on with the belly to the bark and the paws gripping it: head up the trunk while climbing, and head
+        // first down it while going down, turning round on the trunk between the two.
+        if (up)
+            _headFirst = false;
+        else if (down)
+            _headFirst = true;
         GlobalPosition = onTrunk;
-        float pitch = Mathf.Lerp(Animal.Rotation.X, Mathf.Pi / 2f, Mathf.Min(1f, 8f * dt));
-        Animal.Rotation = new Vector3(pitch, Yaw(-outward), 0);
+        var cling = _headFirst
+            ? Quaternion.FromEuler(new Vector3(-Mathf.Pi / 2f, Yaw(outward), 0))
+            : Quaternion.FromEuler(new Vector3(Mathf.Pi / 2f, Yaw(-outward), 0));
+        Animal.Quaternion = Animal.Quaternion.Normalized().Slerp(cling, Mathf.Min(1f, 8f * dt));
         bool moving = rate != 0f || sideways != 0f;
         Animal.Animate(moving ? Mathf.Max(Mathf.Abs(rate), ClimbSpeed * 0.6f) : 0f, moving ? 1f : 0f, 0f, dt);
     }
@@ -195,8 +206,6 @@ public partial class Player
         float start = BranchStart(_branch);
         float reach = _tree.Branches[_branch].Reach;
         _climbHeight = _tree.BranchHeight(_branch);
-
-        ActionPrompt = "W / S to walk out or back along the branch, C to sit, X to lie down, Space to leap off";
 
         // Sit or stretch out along the limb, as snow leopards do to watch over a valley. Moving or Space gets the cat
         // up, but it stays put until it is back on its feet.
@@ -284,7 +293,6 @@ public partial class Player
         if (_hop < 1f)
             return;
 
-        ActionPrompt = "A / D to turn, C to sit, X to lie down, Space to leap down, S to climb down";
         if (Stats.Can(Ability.Hunt))
             UpdateHunting(dt, resting, upTree: true);
         if (resting)
@@ -299,6 +307,7 @@ public partial class Player
             _mode = Mode.Climbing;
             _hop = 0f;
             _climbHeight = _tree.ClimbTop - 0.05f;
+            _headFirst = true;
             Animal.IsClimbing = true;
             _springArm.Rotation = new Vector3(0.25f, 0, 0);
         }

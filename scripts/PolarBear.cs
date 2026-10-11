@@ -24,6 +24,13 @@ public partial class PolarBear : Quadruped
     /// </summary>
     private const float BodyScale = 3f;
 
+    /// <summary>
+    /// A friendlier face than a real polar bear's small, long head: the whole head drawn half as big again on a short,
+    /// thick neck, with a stubby muzzle, big eyes and big round ears, the way a cub's face looks, all round and soft.
+    /// </summary>
+    private const float HeadScale = 1.5f;
+    private const float MuzzleScale = 0.7f;
+
     private static readonly Color Cream = new(0.97f, 0.92f, 0.79f);
     private static readonly Color Shade = new(0.86f, 0.79f, 0.64f);
     private static readonly Color FurRoot = new(0.9f, 0.86f, 0.76f);
@@ -105,17 +112,18 @@ public partial class PolarBear : Quadruped
         Attach(body, "Belly", Strands(rng, OnShape(rng, BodyShape, 2800, u => u.Y < -0.4f), new Vector3(0, -1f, 0.3f),
             0.06f, 0.1f, FurRoot, FurTip, Hair, width: 0.022f, colouring: furColour));
 
-        // A long neck, carried low and forward, thick with fur.
+        // A short, thick neck, thick with fur, so the big head sits close against the shoulders.
         Neck = Pivot(Frame, "Neck", new Vector3(0, BodyCentre + 0.05f, -0.82f));
-        var headAt = new Vector3(0, 0.06f, -0.46f);
-        var joint = new Vector3(0.25f, 0.27f, 0.25f);
+        var headAt = new Vector3(0, 0.08f, -0.24f);
+        var joint = new Vector3(0.27f, 0.29f, 0.25f);
         Attach(Neck, "Joint", Ellipsoid(joint, 14, 10, coat));
         Attach(Neck, "JointFur", Strands(rng, OnShape(rng, u => u * joint, 1000, _ => true), CoatDrift,
             0.035f, 0.06f, FurRoot, FurTip, Hair, width: 0.02f, colouring: furColour));
-        Attach(Neck, "Throat", Tube([Vector3.Zero, headAt], [0.27f, 0.17f], 12, coat, capEnd: false));
-        Attach(Neck, "NeckFur", Strands(rng, OnSegment(rng, 2000, Vector3.Zero, headAt, 0.27f, 0.17f), CoatDrift,
+        Attach(Neck, "Throat", Tube([Vector3.Zero, headAt], [0.29f, 0.24f], 12, coat, capEnd: false));
+        Attach(Neck, "NeckFur", Strands(rng, OnSegment(rng, 1200, Vector3.Zero, headAt, 0.29f, 0.24f), CoatDrift,
             0.035f, 0.06f, FurRoot, FurTip, Hair, width: 0.02f, colouring: furColour));
         Head = Pivot(Neck, "Head", headAt);
+        Head.Scale = Vector3.One * HeadScale;
         BuildHead(rng, coat, furColour, black);
 
         // Thick legs, shaggy behind, on huge round paws.
@@ -132,23 +140,26 @@ public partial class PolarBear : Quadruped
     }
 
     /// <summary>
-    /// A small, long head with a flat brow running straight down to the muzzle (a "Roman" profile), a black nose and
-    /// lips, small dark eyes, and little round ears set well back.
+    /// A big, round head with a short muzzle squashed by <see cref="MuzzleScale"/>, a black nose and lips, big dark
+    /// eyes with a shine in them, and big round ears on top, softer and friendlier than a real polar bear's.
     /// </summary>
     private void BuildHead(RandomNumberGenerator rng, StandardMaterial3D coat, Func<Vector3, Vector3, Color> furColour, Material black)
     {
-        var skull = new Vector3(0.15f, 0.14f, 0.18f);
+        // A round, domed skull rather than a real polar bear's long, flat one.
+        var skull = new Vector3(0.16f, 0.155f, 0.16f);
         Attach(Head, "Skull", Ellipsoid(skull, 20, 14, coat));
 
         // Short fur on the face, kept clear of the eyes so they show.
         Attach(Head, "SkullFur", Strands(rng, OnShape(rng, u => u * skull, 900, u => u.Z > -0.6f && !(Mathf.Abs(u.X) > 0.45f && u.Y > -0.2f && u.Z < 0.2f)),
             CoatDrift, 0.015f, 0.028f, FurRoot, FurTip, Hair, width: 0.013f, colouring: furColour));
 
-        // The forehead runs straight down into the long muzzle with hardly a dip between: the "Roman nose".
+        // The forehead runs down into the muzzle, which is pressed short so it's a stubby, button-nosed snout.
         var bridgeAt = new Vector3(0, 0.015f, -0.13f);
         var bridge = new Vector3(0.11f, 0.095f, 0.14f);
-        Attach(Head, "Bridge", Ellipsoid(bridge, 16, 12, coat), bridgeAt);
-        Attach(Head, "BridgeFur", Strands(rng, OnShape(rng, u => u * bridge + bridgeAt, 500, u => u.Y > -0.3f && !(Mathf.Abs(u.X) > 0.6f && u.Y < 0.5f)),
+        var snout = Pivot(Head, "Snout", Vector3.Zero);
+        snout.Scale = new Vector3(1f, 1f, MuzzleScale);
+        Attach(snout, "Bridge", Ellipsoid(bridge, 16, 12, coat), bridgeAt);
+        Attach(snout, "BridgeFur", Strands(rng, OnShape(rng, u => u * bridge + bridgeAt, 500, u => u.Y > -0.3f && !(Mathf.Abs(u.X) > 0.6f && u.Y < 0.5f)),
             new Vector3(0, -0.1f, 0.9f), 0.012f, 0.022f, FurRoot, FurTip, Hair, width: 0.012f, colouring: furColour));
 
         Func<Vector3, Vector3> muzzle = u =>
@@ -157,19 +168,19 @@ public partial class PolarBear : Quadruped
             return new Vector3(u.X * 0.092f * taper, u.Y * 0.08f * taper, u.Z * 0.19f);
         };
         var muzzleAt = new Vector3(0, -0.035f, -0.22f);
-        Attach(Head, "Muzzle", Ellipsoid(muzzle, 18, 12, coat), muzzleAt);
-        Attach(Head, "MuzzleFur", Strands(rng, OnShape(rng, u => muzzle(u) + muzzleAt, 400, u => u.Y > -0.3f && u.Z > -0.8f),
+        Attach(snout, "Muzzle", Ellipsoid(muzzle, 18, 12, coat), muzzleAt);
+        Attach(snout, "MuzzleFur", Strands(rng, OnShape(rng, u => muzzle(u) + muzzleAt, 400, u => u.Y > -0.3f && u.Z > -0.8f),
             new Vector3(0, 0, 1f), 0.01f, 0.017f, FurRoot, FurTip, Hair, width: 0.01f, colouring: furColour));
 
         // The big black nose caps the end of the muzzle, broad on top and set into it rather than stuck on.
         Func<Vector3, Vector3> nose = u => new Vector3(u.X * 0.05f * (0.8f + 0.25f * u.Y), u.Y * 0.032f, u.Z * 0.03f);
-        Attach(Head, "Nose", Ellipsoid(nose, 14, 10, black), muzzleAt + new Vector3(0, 0.018f, -0.175f));
+        Attach(snout, "Nose", Ellipsoid(nose, 14, 10, black), muzzleAt + new Vector3(0, 0.018f, -0.175f));
 
         // The jaw beneath, with the black lips showing as a line along each side of the mouth.
-        Attach(Head, "Jaw", Ellipsoid(new Vector3(0.068f, 0.035f, 0.13f), 12, 8, coat), muzzleAt + new Vector3(0, -0.06f, 0.0f));
+        Attach(snout, "Jaw", Ellipsoid(new Vector3(0.068f, 0.035f, 0.13f), 12, 8, coat), muzzleAt + new Vector3(0, -0.06f, 0.0f));
         foreach (float side in new[] { -1f, 1f })
         {
-            var lip = Pivot(Head, "Lip", muzzleAt + new Vector3(side * 0.058f, -0.036f, -0.07f));
+            var lip = Pivot(snout, "Lip", muzzleAt + new Vector3(side * 0.058f, -0.036f, -0.07f));
             lip.Rotation = new Vector3(0.12f, side * 0.18f, 0f);
             Attach(lip, "Line", Ellipsoid(new Vector3(0.006f, 0.008f, 0.085f), 8, 6, black));
         }
@@ -179,12 +190,12 @@ public partial class PolarBear : Quadruped
         {
             float side = i == 0 ? -1f : 1f;
 
-            // Small dark eyes, set forward on the face and just proud of it, with a black rim of bare skin.
-            Eye(Head, new Vector3(side * 0.095f, 0.045f, -0.13f), new Vector3(0, -side * 0.6f, 0), 0.016f, new Color(0.1f, 0.06f, 0.04f), 0.8f);
+            // Big dark eyes, set forward on the face and just proud of it, with a black rim of bare skin.
+            Eye(Head, new Vector3(side * 0.085f, 0.05f, -0.135f), new Vector3(0, -side * 0.45f, 0), 0.026f, new Color(0.1f, 0.06f, 0.04f), 0.8f);
 
-            // Small, round ears, set far back: less to lose heat through.
-            _ears[i] = Pivot(Head, "Ear", new Vector3(side * 0.11f, 0.11f, 0.06f));
-            var ear = new Vector3(0.045f, 0.042f, 0.02f);
+            // Big, round ears, standing up on top of the head like a teddy bear's.
+            _ears[i] = Pivot(Head, "Ear", new Vector3(side * 0.11f, 0.125f, 0.03f));
+            var ear = new Vector3(0.062f, 0.058f, 0.024f);
             Attach(_ears[i], "Ear", Ellipsoid(ear, 12, 8, coat), new Vector3(0, 0.03f, 0));
             Attach(_ears[i], "EarFur", Strands(rng, OnShape(rng, u => u * ear + new Vector3(0, 0.03f, 0), 60, u => u.Z > -0.2f),
                 new Vector3(0, 0.6f, 0.4f), 0.012f, 0.02f, FurRoot, FurTip, Hair, width: 0.012f, colouring: furColour));
@@ -212,15 +223,20 @@ public partial class PolarBear : Quadruped
         }
     }
 
-    /// <summary>Long and heavy, rising from the shoulders to a higher rump, as a polar bear's back does.</summary>
+    /// <summary>
+    /// Long and heavy, a little broader at the rump, with a straight, level back running from the shoulders to the rump
+    /// rather than a real polar bear's rising one: the top is flattened so it only rounds off right at the ends.
+    /// </summary>
     private static Vector3 BodyShape(Vector3 u)
     {
         var p = new Vector3(u.X * 0.4f, u.Y * 0.44f, u.Z * 0.95f);
         float rump = Mathf.SmoothStep(-0.3f, 0.5f, p.Z);
         p.X *= 0.92f + rump * 0.1f;
         if (u.Y > 0)
-            p.Y *= 0.9f + rump * 0.2f;
-        p.Y += rump * 0.05f;
+            p.Y = 0.44f * FlatTop(u.Y);
         return p;
     }
+
+    /// <summary>Lifts the upper half of a sphere towards a flat top, so a back built on it runs level and straight.</summary>
+    internal static float FlatTop(float y) => Mathf.Pow(y, 0.55f);
 }

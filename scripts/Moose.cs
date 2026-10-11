@@ -5,7 +5,7 @@ namespace IceAgeWorld;
 
 /// <summary>
 /// A moose (elk in Europe), the biggest deer there is, built entirely in code to a real bull's proportions: nearly two
-/// metres at the shoulder, with a short, deep body under a high, humped back, very long pale legs for wading deep snow
+/// metres at the shoulder, with a short, deep body under a straight, level back, very long pale legs for wading deep snow
 /// and lakes, a short, thick neck under a stiff dark mane, and a long, heavy head with a great overhanging, drooping
 /// nose and a flap of hair-covered skin, the "bell", hanging from the throat. Its antlers are broad, flat palms with
 /// a fringe of points round the edge, held out sideways, a good metre and a half across. It walks with a long, slow
@@ -17,6 +17,27 @@ public partial class Moose : Quadruped
     private const int Seed = 67;
 
     private const float BodyCentre = 1.62f;
+
+    /// <summary>
+    /// How much bigger the antlers are drawn than they are modelled: a big bull's, the largest antlers of any deer,
+    /// spreading nearly two metres from tip to tip, like the Alaskan bulls that roamed the ice-age north.
+    /// </summary>
+    private const float AntlerScale = 1.5f;
+
+    /// <summary>How big the muzzle and nostrils are drawn against a real bull's great, swollen nose: smaller and neater.</summary>
+    private const float NoseScale = 0.7f;
+
+    /// <summary>
+    /// How much bigger the body is drawn than a real moose's: a massive, barrel-chested giant on its long legs, like
+    /// the stag-moose of the ice age, heavier than any deer alive.
+    /// </summary>
+    private const float BodySize = 1.25f;
+
+    /// <summary>
+    /// How much bigger the head is drawn than a real moose's, to suit the giant body: long and massive. The antlers are
+    /// sized on their own, by <see cref="AntlerScale"/>, so they stay the same size on the bigger head.
+    /// </summary>
+    private const float HeadScale = 1.35f;
 
     private static readonly Color Coat = new(0.24f, 0.16f, 0.1f);
     private static readonly Color Saddle = new(0.4f, 0.3f, 0.2f);
@@ -39,11 +60,11 @@ public partial class Moose : Quadruped
         Scores = new() { JumpHeight = 5, JumpLength = 6, LandSpeed = 6, WaterSpeed = 7, Agility = 4, Stamina = 8 },
         FloatDepth = 1.35f,
         WadeDepth = 0.9f,
-        MouthDistance = 1.55f,
+        MouthDistance = 1.9f,
         EatReach = 0.8f,
         CanGraze = true,
-        BodyRadius = 0.6f,
-        BodyHeight = 2.3f,
+        BodyRadius = 0.72f,
+        BodyHeight = 2.45f,
         CameraHeight = 2.1f,
         CameraDistance = 8f,
     };
@@ -97,11 +118,11 @@ public partial class Moose : Quadruped
 
         var body = Pivot(Frame, "Body", new Vector3(0, BodyCentre, 0));
         Attach(body, "Hide", Ellipsoid(BodyShape, 36, 22, coat, bodyColour));
-        Attach(body, "Coat", Strands(rng, OnShape(rng, BodyShape, 6000, _ => true), CoatDrift,
+        Attach(body, "Coat", Strands(rng, OnShape(rng, BodyShape, 9000, _ => true), CoatDrift,
             0.035f, 0.06f, FurRoot, FurTip, Hair, width: 0.03f, colouring: furColour));
 
-        // A short, thick neck from the front of the hump, with a stiff dark mane along its top.
-        Neck = Pivot(Frame, "Neck", new Vector3(0, BodyCentre + 0.2f, -0.82f));
+        // A short, thick neck from the front of the shoulders, with a stiff dark mane along its top.
+        Neck = Pivot(Frame, "Neck", new Vector3(0, BodyCentre + 0.28f, -1f));
         var headAt = new Vector3(0, 0.12f, -0.42f);
         Attach(Neck, "Joint", Ellipsoid(new Vector3(0.24f, 0.3f, 0.24f), 14, 10, coat, bodyColour));
         // Tubes carry no patches of colour, so the neck wears a plain coat of its own.
@@ -112,6 +133,7 @@ public partial class Moose : Quadruped
         Attach(Neck, "Mane", Strands(rng, OnSegment(rng, 500, new Vector3(0, 0.22f, 0.25f), headAt + new Vector3(0, 0.14f, 0.05f), 0.04f, 0.03f),
             new Vector3(0, 1f, 0.3f), 0.07f, 0.12f, FurRoot, FurTip, Hair, width: 0.03f, colouring: (p, n) => Coat * 0.7f));
         Head = Pivot(Neck, "Head", headAt);
+        Head.Scale = Vector3.One * HeadScale;
         BuildHead(rng, coat, grain, horn, antler);
 
         // Long, pale, grey-brown legs below dark shoulders and haunches.
@@ -121,7 +143,7 @@ public partial class Moose : Quadruped
             (foot, _) => Hooves(foot, 0.1f, legCoat, horn));
 
         // A stubby tail, barely showing.
-        var tail = Pivot(Frame, "Tail", new Vector3(0, BodyCentre + 0.12f, 0.95f));
+        var tail = Pivot(Frame, "Tail", new Vector3(0, BodyCentre + 0.15f, 1.18f));
         Attach(tail, "Tail", Ellipsoid(new Vector3(0.06f, 0.05f, 0.08f), 10, 8, coat, bodyColour), new Vector3(0, -0.04f, 0.03f));
     }
 
@@ -141,7 +163,7 @@ public partial class Moose : Quadruped
         Func<Vector3, Vector3> face = u =>
         {
             float t = Mathf.Clamp((-u.Z + 1f) * 0.5f, 0f, 1f);
-            return new Vector3(u.X * Mathf.Lerp(0.1f, 0.12f, t * t), u.Y * Mathf.Lerp(0.1f, 0.13f, t), u.Z * 0.26f);
+            return new Vector3(u.X * Mathf.Lerp(0.1f, 0.1f + 0.02f * NoseScale, t * t), u.Y * Mathf.Lerp(0.1f, 0.1f + 0.03f * NoseScale, t), u.Z * 0.26f);
         };
         var faceAt = new Vector3(0, -0.06f, -0.27f);
         Attach(Head, "Face", Ellipsoid(face, 20, 14, coat, faceColour), faceAt);
@@ -149,10 +171,10 @@ public partial class Moose : Quadruped
             0.012f, 0.022f, FurRoot, FurTip, Hair, width: 0.014f, colouring: (p, n) => faceColour(p, n) * grain(p, n)));
 
         // The overhanging upper lip droops over the mouth; wide, dark nostrils sit on its front.
-        var lipAt = faceAt + new Vector3(0, -0.04f, -0.24f);
-        Attach(Head, "Lip", Ellipsoid(new Vector3(0.12f, 0.085f, 0.08f), 16, 10, coat, (p, n) => Muzzle), lipAt);
+        var lipAt = faceAt + new Vector3(0, -0.035f, -0.22f);
+        Attach(Head, "Lip", Ellipsoid(new Vector3(0.12f, 0.085f, 0.08f) * NoseScale, 16, 10, coat, (p, n) => Muzzle), lipAt);
         foreach (float side in new[] { -1f, 1f })
-            Attach(Head, "Nostril", Ellipsoid(new Vector3(0.02f, 0.035f, 0.012f), 8, 6, horn), lipAt + new Vector3(side * 0.05f, 0.01f, -0.072f));
+            Attach(Head, "Nostril", Ellipsoid(new Vector3(0.02f, 0.035f, 0.012f) * NoseScale, 8, 6, horn), lipAt + new Vector3(side * 0.05f, 0.01f, -0.072f) * NoseScale);
         Attach(Head, "Jaw", Ellipsoid(new Vector3(0.08f, 0.04f, 0.14f), 12, 8, coat, (p, n) => Muzzle), faceAt + new Vector3(0, -0.1f, -0.06f));
 
         // The bell: a flap of skin and long hair hanging from the throat.
@@ -185,6 +207,7 @@ public partial class Moose : Quadruped
     private void BuildAntler(float side, Material antler, RandomNumberGenerator rng)
     {
         var root = Pivot(Head, "Antler", new Vector3(side * 0.09f, 0.11f, 0.06f));
+        root.Scale = Vector3.One * (AntlerScale / HeadScale);
         var palmAt = new Vector3(side * 0.42f, 0.2f, 0.02f);
         Attach(root, "Beam", Tube([Vector3.Zero, new Vector3(side * 0.16f, 0.06f, 0.02f), palmAt * 0.7f], [0.05f, 0.045f, 0.04f], 8, antler, capEnd: false));
 
@@ -215,14 +238,17 @@ public partial class Moose : Quadruped
         }
     }
 
-    /// <summary>Short and deep, with a high hump over the shoulders where the neck muscles anchor, falling to a lower rump.</summary>
+    /// <summary>
+    /// Short and deep, deepest in the chest, with a straight, level back running from the shoulders to the rump rather
+    /// than a real moose's high hump over the shoulders: the top is flattened so it only rounds off right at the ends.
+    /// </summary>
     private static Vector3 BodyShape(Vector3 u)
     {
-        var p = new Vector3(u.X * 0.38f, u.Y * 0.42f, u.Z * 0.95f);
+        var p = new Vector3(u.X * 0.38f, u.Y * 0.42f, u.Z * 0.95f) * BodySize;
         float front = Mathf.SmoothStep(0.5f, -0.6f, p.Z);
         p.X *= 0.9f + front * 0.12f;
         if (u.Y > 0)
-            p.Y *= 0.85f + front * 0.45f;
+            p.Y = 0.42f * 1.1f * BodySize * PolarBear.FlatTop(u.Y);
         else
             p.Y *= 0.9f + front * 0.15f;
         return p;

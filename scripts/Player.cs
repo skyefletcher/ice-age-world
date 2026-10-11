@@ -61,21 +61,11 @@ public partial class Player : CharacterBody3D
     public Water? Water { get; set; }
     public Wildlife? Wildlife { get; set; }
 
-    /// <summary>What the player can do right now (e.g. "Press E to drink"), or null if nothing.</summary>
+    /// <summary>
+    /// The prompt to eat or drink right now (e.g. "Press E to drink"), or null. It's the only message the game shows:
+    /// everything else, the player sees happening for itself.
+    /// </summary>
     public string? ActionPrompt { get; private set; }
-
-    /// <summary>A short piece of news to show for a few seconds, e.g. a new wolf joining the pack, or null.</summary>
-    public string? Message => _messageTime > 0f ? _message : null;
-
-    private string? _message;
-    private float _messageTime;
-
-    /// <summary>Shows a short piece of news for <paramref name="seconds"/>.</summary>
-    public void Announce(string message, float seconds = 5f)
-    {
-        _message = message;
-        _messageTime = seconds;
-    }
 
     /// <summary>
     /// A wild animal the player killed is reborn into the player's own pack or herd of that kind, if it has one, e.g. a
@@ -88,7 +78,6 @@ public partial class Player : CharacterBody3D
             if (animal.GetType() != fallen.GetType())
                 continue;
             herd.Recruit();
-            Announce($"The {fallen.DisplayName.ToLower()} you beat is reborn: a pup in your pack, and one in its own!", 6f);
             return;
         }
     }
@@ -129,6 +118,9 @@ public partial class Player : CharacterBody3D
 
     /// <summary>0..1 how far the head is dipped to eat or drink, passed to the model each frame.</summary>
     private float _headDip;
+
+    /// <summary>Seconds the head takes to go all the way down to feed, or come all the way back up.</summary>
+    private const float HeadLiftSeconds = 0.4f;
 
     public override void _Ready()
     {
@@ -269,7 +261,6 @@ public partial class Player : CharacterBody3D
     {
         float dt = (float)delta;
         ActionPrompt = null;
-        _messageTime -= dt;
         if (IsDead)
         {
             LieDead(dt);
@@ -458,7 +449,7 @@ public partial class Player : CharacterBody3D
             // Lift the head from where it is rather than finishing the mouthful: a head still going down turns
             // round at the same height. Nothing more is taken on the way up.
             _stopFeeding = true;
-            _feedTimer = Mathf.Min(_feedTimer, _feedDuration - _feedTimer);
+            _feedTimer = Mathf.Min(_feedTimer, HeadLiftSeconds * _headDip);
             _grassTarget = -1;
             _carcass = null;
             // Keep feeding through this frame, so the same press can't start the animal eating again.
@@ -489,17 +480,19 @@ public partial class Player : CharacterBody3D
             }
         }
 
+        // The head goes down once and stays down, mouthful after mouthful, the way a grazer crops or a deer drinks with
+        // its muzzle in the water, and only comes up again once the animal stops.
         if (!IsFeeding)
         {
-            _headDip = 0f;
+            _headDip = Mathf.MoveToward(_headDip, 0f, dt / HeadLiftSeconds);
             return;
         }
+        _headDip = _stopFeeding
+            ? Mathf.MoveToward(_headDip, 0f, dt / HeadLiftSeconds)
+            : Mathf.MoveToward(_headDip, 1f, dt / HeadLiftSeconds);
 
         _feedTimer = Mathf.Max(0f, _feedTimer - dt);
         float progress = 1f - _feedTimer / _feedDuration;
-
-        // Lower the head, hold it down, then raise it again.
-        _headDip = Mathf.Min(1f, Mathf.Sin(progress * Mathf.Pi) * 1.6f);
 
         // Grass is flattened halfway through the mouthful, when the head is lowest.
         if (_feeding == Feeding.Eating && progress >= 0.5f && _grassTarget >= 0)

@@ -68,28 +68,31 @@ public readonly record struct Tree(Transform3D Transform, TreeBuilder.Shape Shap
 /// <summary>
 /// Procedurally generates the ice-age landscape: a noise-based heightmap mesh, matching collision,
 /// a ring of mountains around the edge to keep players in, a couple of ranges of rocky hills rising out of the steppe, with
-/// caves dug into their flanks (see Terrain.Caves.cs), lake basins and patches of mixed, randomised forest.
+/// caves dug into their flanks (see Terrain.Caves.cs), a great cliff (see Terrain.Cliff.cs), lake basins and patches of
+/// mixed, randomised forest.
 /// </summary>
 public partial class Terrain : Node3D
 {
-    /// <summary>Vertices along each side of the heightmap: 513 at 2 m apart makes a world just over a kilometre across.</summary>
-    [Export] public int Resolution { get; set; } = 513;
+    /// <summary>
+    /// Vertices along each side of the heightmap: 769 at 2 m apart makes a world just over one and a half kilometres across.
+    /// </summary>
+    [Export] public int Resolution { get; set; } = 769;
 
     /// <summary>World units between neighbouring vertices.</summary>
     [Export] public float CellSize { get; set; } = 2f;
 
     [Export] public float HeightScale { get; set; } = 28f;
     [Export] public int Seed { get; set; } = 1234;
-    [Export] public int TreeCount { get; set; } = 1600;
-    [Export] public int LakeCount { get; set; } = 6;
+    [Export] public int TreeCount { get; set; } = 3600;
+    [Export] public int LakeCount { get; set; } = 9;
 
     /// <summary>
     /// Radius of the one big lake that fills the north-east corner of the world, big enough to swim a long way out into,
     /// with a wide, gentle shore so it lies in a broad basin rather than a pit.
     /// </summary>
-    [Export] public float BigLakeRadius { get; set; } = 100f;
+    [Export] public float BigLakeRadius { get; set; } = 220f;
 
-    [Export] public float BigLakeShore { get; set; } = 20f;
+    [Export] public float BigLakeShore { get; set; } = 30f;
 
     /// <summary>
     /// How many mountain ranges rise out of the steppe inside the world, how many rocky hills crowd together in each and
@@ -289,6 +292,16 @@ public partial class Terrain : Node3D
         // High on the mountains the wind scours the snow off the ridges and steeper faces, baring dark crags.
         float crags = Mathf.SmoothStep(HeightScale * 1.1f, HeightScale * 1.6f, h) * (1f - Mathf.SmoothStep(0.86f, 0.97f, normal.Y));
         rock = Mathf.Max(rock, Mathf.Max(crags, HillRock(x, z)));
+        // A sheer face, like the cliff's, is bare rock from its foot to its lip, where fallen scree and the broken edge
+        // hold no snow, not just where it is steepest; otherwise snow at its foot streaks up the rock.
+        float drop = 0f;
+        for (int k = 0; k < 8; k++)
+        {
+            float a = k * Mathf.Tau / 8f;
+            float dx = Mathf.Cos(a) * 5f, dz = Mathf.Sin(a) * 5f;
+            drop = Mathf.Max(drop, Mathf.Abs(GetHeight(x + dx, z + dz) - GetHeight(x - dx, z - dz)));
+        }
+        rock = Mathf.Max(rock, Mathf.SmoothStep(8f, 12f, drop));
         float mud = 1f - Mathf.SmoothStep(1f, 3.5f, DistanceFromWater(x, z));
         return Steppe.Lerp(Snow, snow).Lerp(Rock, rock).Lerp(Mud, mud);
     }
@@ -304,6 +317,7 @@ public partial class Terrain : Node3D
             Frequency = 0.003f,
         };
 
+        PlaceCliff();
         PlaceMountains();
         _heights = new float[Resolution * Resolution];
         _surface = _heights;
@@ -320,7 +334,7 @@ public partial class Terrain : Node3D
             // Flatten the spawn area in the middle of the map.
             float fromCentre = new Vector2(wx, wz).Length();
             h *= Mathf.Lerp(0.3f, 1f, Mathf.SmoothStep(0f, 60f, fromCentre));
-            h += MountainHeight(wx, wz);
+            h += MountainHeight(wx, wz) + CliffHeightAt(wx, wz);
 
             // Steep mountains near the edge form a natural world boundary.
             float toEdge = HalfSize - Mathf.Max(Mathf.Abs(wx), Mathf.Abs(wz));
@@ -353,7 +367,9 @@ public partial class Terrain : Node3D
             float angle = rng.Randf() * Mathf.Tau;
             var centre = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * distance;
 
-            if (GetHeight(centre.X, centre.Y) > HeightScale * 0.2f)
+            // Keep lakes off the cliff too, whose bank would otherwise wear its face down into a slope.
+            if (GetHeight(centre.X, centre.Y) > HeightScale * 0.2f
+                || DistanceFromCliff(centre) < radius + ShoreWidth + CliffFace + CliffWander)
                 continue;
 
             bool overlaps = false;

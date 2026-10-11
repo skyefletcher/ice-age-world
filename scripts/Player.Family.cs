@@ -21,12 +21,8 @@ public partial class Player
     /// <summary>Seconds spent beside the wild snow leopard so far; leaving it starts the count again.</summary>
     private float _courtship;
 
-    /// <summary>How the courtship is going, shown on the HUD while it is under way, or null.</summary>
-    public string? Courtship { get; private set; }
-
     private void Court(float dt)
     {
-        Courtship = null;
         if (Animal is not SnowLeopard || !_herds.TryGetValue(Animal, out var family) || family.Any || Wildlife is null)
         {
             _courtship = 0f;
@@ -38,23 +34,14 @@ public partial class Player
         {
             LetGo();
             _courtship = 0f;
-            PairUp(family, beaten, "You won the fight!");
-            return;
-        }
-        if (Wildlife.RivalFighting)
-            Courtship = "The snow leopard doesn't want a mate and is fighting you! Beat it and it will pair up with you";
-
-        if (_mode != Mode.Ground || IsGripping || Wildlife.MateNear(GlobalPosition, CourtshipRange) is not { } mate)
-        {
-            _courtship = 0f;
+            PairUp(family, beaten);
             return;
         }
 
         // Snow leopards only breed once they're grown, at two or three years old; a cub has to grow up first.
-        if (!IsGrownUp)
+        if (_mode != Mode.Ground || IsGripping || !IsGrownUp || Wildlife.MateNear(GlobalPosition, CourtshipRange) is not { } mate)
         {
             _courtship = 0f;
-            Courtship = "Grow up first, then stay with the snow leopard to start a family";
             return;
         }
 
@@ -62,26 +49,21 @@ public partial class Player
         if (!Wildlife.WillMate(mate))
         {
             _courtship = 0f;
-            Courtship = "The snow leopard doesn't want a mate and is fighting you! Beat it and it will pair up with you";
             return;
         }
 
         _courtship += dt;
         if (_courtship < CourtshipSeconds)
-        {
-            Courtship = $"Stay with the snow leopard to start a family: {Mathf.CeilToInt(CourtshipSeconds - _courtship)}";
             return;
-        }
 
         _courtship = 0f;
-        PairUp(family, mate, "");
+        PairUp(family, mate);
     }
 
     /// <summary>The wild snow leopard leaves the wild to join the player's family, and they have their first cub.</summary>
-    private void PairUp(Herd family, Animal mate, string news)
+    private void PairUp(Herd family, Animal mate)
     {
         family.Recruit(1f, Wildlife!.Leave(mate));
         family.Recruit();
-        Announce($"{news} You have a {Animal.YoungName.ToLower()}! Your mate and cub will hunt with you.".TrimStart(), 6f);
     }
 }

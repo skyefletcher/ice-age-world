@@ -71,10 +71,6 @@ public partial class Player
         if (damage <= 0f)
             return;
         Hurt(damage);
-        if (!IsDead)
-        {
-            Announce(damage > 40f ? "Ouch! That fall hurt badly" : "Ouch! A hard landing", 3f);
-        }
     }
 
     /// <summary>

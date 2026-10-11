@@ -4,7 +4,7 @@ namespace IceAgeWorld;
 
 /// <summary>
 /// On-screen display: the current animal's name and how grown it is, the health, hunger, thirst and stamina bars, the
-/// "Press E to ..." prompt, a warning while wolves are hunting the player, the map (see <see cref="WorldMap"/>), and, once
+/// "Press E to eat/drink" prompt, the map (see <see cref="WorldMap"/>), and, once
 /// it has died, the choice to be reborn.
 /// </summary>
 public partial class Hud : CanvasLayer
@@ -64,18 +64,8 @@ public partial class Hud : CanvasLayer
         // Stamina runs low all the time in a chase, so it only warns once the animal is out of breath.
         UpdateBar(_staminaBar, Player.Stamina, Player.IsExhausted);
 
-        // Anything the animal can do comes first, then any news; otherwise warn it when the polar bear or the wolves
-        // are after it.
-        string? prompt = Player.ActionPrompt ?? Player.Message;
-        if (Player.Courtship is { } courtship)
-            prompt = prompt is null ? courtship : courtship + "\n" + prompt;
-        bool climber = Player.Animal.Stats.Can(Ability.ClimbTrees);
-        if (prompt is null && !Player.IsDead && Player.Wildlife?.BearHuntingPlayer == true)
-            prompt = climber ? "The polar bear is after you! Climb a tree!" : "The polar bear is after you! Run!";
-        else if (prompt is null && !Player.IsDead && Player.Wildlife?.WolvesHuntingPlayer == true)
-            prompt = climber
-                ? "The wolf pack is after you! Run, or climb a tree!"
-                : "The wolves are after you! Run!";
+        // The only words on screen are the prompt to eat or drink; everything else the player sees for itself.
+        string? prompt = Player.ActionPrompt;
         _actionPrompt.Visible = prompt is not null;
         _actionPrompt.Text = prompt ?? "";
 
@@ -127,7 +117,7 @@ public partial class Hud : CanvasLayer
         Input.MouseMode = Input.MouseModeEnum.Captured;
     }
 
-    /// <summary>The rebirth screen: a dimmed view, the news, and a button for each animal the player can be born as.</summary>
+    /// <summary>The rebirth screen: a dimmed view, a title, and a button for each animal the player can be born as.</summary>
     private void BuildRebirth()
     {
         var shade = new ColorRect { Color = new Color(0f, 0f, 0f, 0.55f), Visible = false, Name = "Rebirth" };

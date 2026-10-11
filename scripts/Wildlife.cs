@@ -106,7 +106,10 @@ public partial class Wildlife : Node3D
     /// <summary>Health a wounded animal that escaped gets back each second.</summary>
     [Export] public float HealPerSecond { get; set; } = 0.5f;
 
-    /// <summary>Seconds the pack feeds on a kill, then sleeps beside it, before it hunts again.</summary>
+    /// <summary>
+    /// The pack feeds on a kill until it's all eaten, then sleeps beside it for <see cref="SleepSeconds"/> before it hunts
+    /// again. If it can't get at the kill, it gives up after <see cref="FeedSeconds"/>.
+    /// </summary>
     [Export] public float FeedSeconds { get; set; } = 30f;
     [Export] public float SleepSeconds { get; set; } = 45f;
 
@@ -131,8 +134,12 @@ public partial class Wildlife : Node3D
     /// <summary>Once its stamina runs out, an animal must get this much back before it can run again, as the player must.</summary>
     private const float RecoveredStamina = 25f;
 
-    /// <summary>Below this much left, a carcass is skin and bone with nothing more to eat.</summary>
-    private const float PickedClean = 0.35f;
+    /// <summary>
+    /// How much of a carcass of unit bulk a wild wolf, and the polar bear, eat per second of feeding. Meat goes by bulk,
+    /// so a pack strips a hare in moments and a reindeer in under half a minute, but a mammoth feeds them for minutes.
+    /// </summary>
+    private const float WolfMealShare = 0.006f;
+    private const float BearMealShare = 0.03f;
 
     /// <summary>Seconds the last of a carcass takes to sink away into the snow before the rebirth, so it fades rather than vanishing.</summary>
     private const float RotSeconds = 20f;
@@ -182,6 +189,12 @@ public partial class Wildlife : Node3D
         /// can take its time hauling it up a tree.
         /// </summary>
         public Vector3? HeldAt;
+
+        /// <summary>
+        /// Where an eagle's talons hold it, alive and kicking, while the bird carries it up into the air; let go of,
+        /// it falls, and a long drop kills it.
+        /// </summary>
+        public Vector3? LiftedAt;
 
         /// <summary>True once it has been left up a tree, where it stays put rather than dropping to the ground.</summary>
         public bool Perched;
@@ -326,9 +339,6 @@ public partial class Wildlife : Node3D
     private IEnumerable<Group> Herds => _groups.Where(g => g.Kind == Kind.Herd);
     private IEnumerable<Group> Packs => _groups.Where(g => g.Kind == Kind.Pack);
 
-    /// <summary>True while a wolf pack is hunting the player.</summary>
-    public bool WolvesHuntingPlayer => Packs.Any(p => p.Activity == Activity.Hunting && p.HuntsPlayer);
-
     /// <summary>
     /// Scatters the herds over the grassland and the packs between them, well away from the player's start, and puts the
     /// otters on the lakes, the first of them on the one nearest the start.
@@ -344,7 +354,7 @@ public partial class Wildlife : Node3D
 
         for (int h = 0; h < MammothHerds; h++)
         {
-            var herd = new Group { Kind = Kind.Herd, Spacing = 5.5f };
+            var herd = new Group { Kind = Kind.Herd, Spacing = 8f };
             herd.Centre = herd.Goal = Grazing(Vector3.Zero, 60f, terrain.HalfSize * 0.8f);
             for (int i = 0; i < MammothsPerHerd; i++)
             {
@@ -386,7 +396,7 @@ public partial class Wildlife : Node3D
 
         for (int g = 0; g < HareGroups; g++)
         {
-            var hares = new Group { Kind = Kind.Hares, Spacing = 1.6f };
+            var hares = new Group { Kind = Kind.Hares, Spacing = 2.4f };
             hares.Centre = hares.Goal = Grazing(Vector3.Zero, 30f, terrain.HalfSize * 0.85f);
             for (int i = 0; i < HaresPerGroup; i++)
             {
@@ -507,7 +517,7 @@ public partial class Wildlife : Node3D
     public Animal? PreyNear(Vector3 point, float reach) => Nearest(point, reach, b => !b.IsDead)?.Animal;
 
     /// <summary>A carcass within <paramref name="reach"/> of <paramref name="point"/> that still has meat on it.</summary>
-    public Animal? CarcassNear(Vector3 point, float reach) => Nearest(point, reach, b => b.IsDead && b.Remains > PickedClean)?.Animal;
+    public Animal? CarcassNear(Vector3 point, float reach) => Nearest(point, reach, HasMeat)?.Animal;
 
     private Beast? Nearest(Vector3 point, float reach, System.Func<Beast, bool> which)
     {
@@ -627,18 +637,33 @@ public partial class Wildlife : Node3D
     }
 
     /// <summary>Takes one mouthful from a carcass. <paramref name="share"/> is how much of a unit-bulk carcass one mouthful eats.</summary>
-    public bool EatFrom(Animal carcass, float share)
+    public bool EatFrom(Animal carcass, float share) => _beasts.TryGetValue(carcass, out var beast) && Gnaw(beast, share);
+
+    /// <summary>
+    /// Eats <paramref name="share"/> of a unit-bulk carcass from this one. There's no end to a carcass but eating it all:
+    /// the last of it is gone and the animal is reborn, so small kills vanish fast and big ones last a long while.
+    /// </summary>
+    private static bool Gnaw(Beast beast, float share)
     {
-        if (!_beasts.TryGetValue(carcass, out var beast) || !beast.IsDead || beast.Remains <= PickedClean)
+        if (!HasMeat(beast))
             return false;
 
-        beast.Remains = Mathf.Max(PickedClean, beast.Remains - share / Mathf.Max(beast.Bulk, 0.05f) * (1f - PickedClean));
+        beast.Remains = Mathf.Max(0f, beast.Remains - share / Mathf.Max(beast.Bulk, 0.05f));
         beast.SinceFed = 0f;
         return true;
     }
 
     /// <summary>True while a carcass still has meat on it.</summary>
-    public bool HasMeat(Animal carcass) => _beasts.TryGetValue(carcass, out var beast) && beast.IsDead && beast.Remains > PickedClean;
+    public bool HasMeat(Animal carcass) => _beasts.TryGetValue(carcass, out var beast) && HasMeat(beast);
+
+    private static bool HasMeat(Beast? beast) => beast is { IsDead: true, Remains: > 0f };
+
+    /// <summary>
+    /// The hunters are done with their kill once it's all eaten, or once they've given up on one they can't reach, carried
+    /// off or up a tree, where none of them has had a mouthful in a while.
+    /// </summary>
+    private bool MealOver(Group group) =>
+        !HasMeat(group.Prey) || (group.Timer > FeedSeconds && group.Prey!.SinceFed > FeedingGrace);
 
     /// <summary>Whether a carcass is light enough for a hunter that can lift <paramref name="maxBulk"/> to carry.</summary>
     public bool CanCarry(Animal carcass, float maxBulk) => _beasts.TryGetValue(carcass, out var beast) && beast.Bulk <= maxBulk;
@@ -669,6 +694,46 @@ public partial class Wildlife : Node3D
         beast.Perched = lodged.HasValue;
         if (lodged is { } spot)
             beast.Body.GlobalPosition = spot;
+    }
+
+    /// <summary>Whether a living animal is light enough for a bird that can lift <paramref name="maxBulk"/> to carry off alive.</summary>
+    public bool CanLift(Animal prey, float maxBulk) =>
+        _beasts.TryGetValue(prey, out var beast) && !beast.IsDead && !beast.OnTree && beast.Bulk <= maxBulk;
+
+    /// <summary>
+    /// A bird has a living animal in its talons at <paramref name="talons"/>; call every frame while carrying it, and
+    /// with null to let go, when it drops from wherever it is. Its group scatters in alarm as it's snatched.
+    /// </summary>
+    public void Lift(Animal prey, Vector3? talons, float yaw = 0f)
+    {
+        if (!_beasts.TryGetValue(prey, out var beast))
+            return;
+        if (talons.HasValue && !beast.LiftedAt.HasValue)
+            Scare(beast.Group, beast.Body.GlobalPosition);
+        beast.LiftedAt = talons;
+        if (talons.HasValue)
+            beast.Yaw = yaw;
+        beast.Fall = 0f;
+    }
+
+    /// <summary>
+    /// Dangles from the talons clenched in its back, legs kicking at the air, facing the way the bird flies. It can't
+    /// get any rest while it struggles.
+    /// </summary>
+    private void Dangle(Beast beast, Vector3 talons, float dt)
+    {
+        var stats = beast.Animal.Stats;
+        var position = talons + Vector3.Down * stats.BodyHeight * stats.BackHeight * beast.Size;
+        beast.Animal.Rotation = new Vector3(0f, beast.Yaw, 0f);
+        position.Y = Mathf.Max(position.Y, _terrain.GroundBelow(position));
+        beast.Body.GlobalPosition = position;
+        beast.Velocity = Vector3.Zero;
+        beast.Fall = 0f;
+        beast.Animal.IsSwimming = false;
+        beast.Animal.Settle(Posture.Standing, 0.3f, dt);
+        beast.Stamina = Mathf.Max(0f, beast.Stamina - 100f / stats.StaminaSeconds * dt);
+        if (Seen(beast))
+            beast.Animal.Animate(stats.SprintSpeed, 1f, 0f, dt);
     }
 
     private static void Scare(Group group, Vector3 from, float seconds = 8f)
@@ -743,7 +808,7 @@ public partial class Wildlife : Node3D
         switch (group.Activity)
         {
             case Activity.Sleeping when group.Timer > SleepSeconds:
-            case Activity.Feeding when group.Timer > FeedSeconds:
+            case Activity.Feeding when MealOver(group):
                 group.Activity = group.Activity == Activity.Feeding ? Activity.Sleeping : Activity.Roaming;
                 group.Timer = 0f;
                 if (group.Activity == Activity.Roaming)
@@ -991,7 +1056,7 @@ public partial class Wildlife : Node3D
                 bear.Prey = null;
                 break;
 
-            case Activity.Feeding when bear.Timer > FeedSeconds * 1.5f:
+            case Activity.Feeding when MealOver(bear):
                 bear.Activity = Activity.Sleeping;
                 bear.Timer = 0f;
                 break;
@@ -1106,9 +1171,6 @@ public partial class Wildlife : Node3D
 
     private bool BearSeesPlayer(Beast bear) =>
         Player is { } player && IsBearPrey(player) && bear.Body.GlobalPosition.DistanceTo(player.GlobalPosition) < PlayerSightRange * 1.5f;
-
-    /// <summary>True while the polar bear is hunting the player.</summary>
-    public bool BearHuntingPlayer => Bears.Any(b => b.Activity == Activity.Hunting && b.HuntsPlayer);
 
     private IEnumerable<Group> Bears => _groups.Where(g => g.Kind == Kind.Loner && g.Members[0].Animal is PolarBear);
 
@@ -1306,7 +1368,9 @@ public partial class Wildlife : Node3D
             beast.SinceFed += dt;
             if (!beast.HeldAt.HasValue && beast.SinceFed > FeedingGrace)
                 beast.DeadTime += dt;
-            if (beast.DeadTime > RebirthSeconds)
+            // Eaten to the last scrap, it's gone at once, unless still in a hunter's jaws: that one lets go of it first.
+            bool eaten = beast.Remains <= 0f && !beast.HeldAt.HasValue;
+            if (beast.DeadTime > RebirthSeconds || eaten)
             {
                 // A wolf the player beat in a fight as a wolf is reborn twice over: as a pup in the player's pack, the one
                 // that beat it, and back in its own pack as well.
@@ -1328,6 +1392,7 @@ public partial class Wildlife : Node3D
         beast.Remains = 1f;
         beast.HeldAt = null;
         beast.Perched = false;
+        beast.LiftedAt = null;
         beast.Grips = 0;
         beast.Pins = 0;
         beast.JoinsPlayer = false;
@@ -1346,10 +1411,10 @@ public partial class Wildlife : Node3D
         beast.Animal.Dead = 0f;
         beast.Animal.Rotation = new Vector3(0f, beast.Yaw, 0f);
 
-        // Any pack still dozing by the old carcass has nothing left to come back to.
-        foreach (var pack in Packs)
-            if (pack.Prey == beast)
-                pack.Prey = null;
+        // Any pack or bear still dozing by the old carcass has nothing left to come back to.
+        foreach (var hunters in _groups)
+            if (hunters.Prey == beast)
+                hunters.Prey = null;
     }
 
     /// <summary>Drifts the group's centre towards its goal at a fraction of walking pace, picking a new goal on arrival.</summary>
@@ -1394,7 +1459,13 @@ public partial class Wildlife : Node3D
         {
             if (beast.OnTree)
                 FallFromTree(beast);
+            beast.LiftedAt = null;
             Lie(beast, dt);
+            return;
+        }
+        if (beast.LiftedAt is { } talons)
+        {
+            Dangle(beast, talons, dt);
             return;
         }
         if (beast.OnTree)
@@ -1497,7 +1568,7 @@ public partial class Wildlife : Node3D
                         {
                             eat = Tearing(beast, dt);
                             if (meal is not null)
-                                meal.Remains = Mathf.Max(PickedClean, meal.Remains - dt / (FeedSeconds * 1.5f) * (1f - PickedClean));
+                                Gnaw(meal, BearMealShare * beast.Size * dt);
                         }
                         else
                         {
@@ -1555,7 +1626,7 @@ public partial class Wildlife : Node3D
                         {
                             eat = Tearing(beast, dt);
                             if (carcass is not null)
-                                carcass.Remains = Mathf.Max(PickedClean, carcass.Remains - dt / (FeedSeconds * group.Members.Count) * (1f - PickedClean));
+                                Gnaw(carcass, WolfMealShare * beast.Size * dt);
                         }
                         else
                         {
@@ -1709,9 +1780,6 @@ public partial class Wildlife : Node3D
         return group.Refuses == false;
     }
 
-    /// <summary>True while a wild snow leopard is fighting the player's.</summary>
-    public bool RivalFighting => _groups.Any(g => g.Kind == Kind.Loner && g.HuntsPlayer);
-
     /// <summary>A wild snow leopard the player's has beaten in a fight, ready to pair up with it, if there is one.</summary>
     public Animal? BeatenRival() =>
         _groups.FirstOrDefault(g => g.Kind == Kind.Loner && g.Beaten)?.Members.FirstOrDefault(c => !c.IsDead)?.Animal;
@@ -1804,9 +1872,14 @@ public partial class Wildlife : Node3D
         cat.Body.GlobalPosition = onTrunk.Lerp(tree.Summit, t);
         cat.Animal.IsClimbing = t < 0.5f;
 
-        // Clinging to the bark it faces the trunk, body tipped up it; on the top it stands level, then lies down.
+        // Clinging to the bark it faces the trunk, body tipped up it; on the top it stands level, then lies down. It
+        // comes back down head first, as cats do, turning round on the trunk to face down it.
         cat.Yaw = Yaw(-outward);
-        cat.Animal.Rotation = new Vector3(Mathf.Pi / 2f * (1f - t), cat.Yaw, 0f);
+        bool descending = safe && cat.Hop <= 0f && cat.Animal.Lying <= 0f;
+        var cling = descending
+            ? Quaternion.FromEuler(new Vector3(-Mathf.Pi / 2f, Yaw(outward), 0f))
+            : Quaternion.FromEuler(new Vector3(Mathf.Pi / 2f * (1f - t), cat.Yaw, 0f));
+        cat.Animal.Quaternion = cat.Animal.Quaternion.Normalized().Slerp(cling, Mathf.Min(1f, 8f * dt));
         cat.Animal.Settle(cat.Hop >= 1f && !safe ? Posture.Lying : Posture.Standing, 1f, dt);
         bool moving = !Mathf.IsEqualApprox(before, cat.ClimbHeight + cat.Hop);
         if (Seen(cat))
@@ -1930,12 +2003,19 @@ public partial class Wildlife : Node3D
         return 0.75f + 0.25f * Mathf.Sin(wolf.GrazeTimer * 7f + wolf.Slot.X);
     }
 
-    /// <summary>A 1.4 s mouthful of grass, then a pause that differs from mammoth to mammoth so they don't bob in unison.</summary>
-    private static float Graze(Beast mammoth, float dt)
+    /// <summary>
+    /// Grazes with the head down, cropping steadily for a long spell, then lifts it for a few seconds to look about for
+    /// danger before putting it down again. The spell differs from animal to animal so a herd doesn't bob in unison.
+    /// </summary>
+    private static float Graze(Beast grazer, float dt)
     {
-        float period = 3.5f + mammoth.Slot.Length() % 2f;
-        mammoth.GrazeTimer = (mammoth.GrazeTimer + dt) % period;
-        return mammoth.GrazeTimer < 1.4f ? Mathf.Min(1f, Mathf.Sin(mammoth.GrazeTimer / 1.4f * Mathf.Pi) * 1.6f) : 0f;
+        const float lookUp = 3f;
+        const float lift = 0.5f;
+        float period = 14f + grazer.Slot.Length() * 3f % 6f;
+        grazer.GrazeTimer = (grazer.GrazeTimer + dt) % period;
+        float t = grazer.GrazeTimer;
+        float down = Mathf.Clamp(t / lift, 0f, 1f) * Mathf.Clamp((period - lookUp - t) / lift, 0f, 1f);
+        return Mathf.SmoothStep(0f, 1f, down);
     }
 
     /// <summary>Heading that faces a level direction, as a rotation about Y (the models face -Z).</summary>

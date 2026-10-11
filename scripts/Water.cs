@@ -31,7 +31,8 @@ public partial class Water : Node3D
                     TopRadius = radius,
                     BottomRadius = radius,
                     Height = 0.02f,
-                    RadialSegments = 64,
+                    // Enough sides that even the big lake's rim stays round, its straight edges hidden under the bank.
+                    RadialSegments = Mathf.Max(64, Mathf.CeilToInt(radius)),
                     Material = material,
                 },
                 Position = new Vector3(lake.Centre.X, lake.Surface - 0.01f, lake.Centre.Y),

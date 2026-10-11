@@ -62,9 +62,9 @@ public partial class Player
     private Vector3 _lunge;
 
     /// <summary>
-    /// Works out what the hunter can do with the wild animals around it, prompts for it and does it when asked: pounce
+    /// Works out what the hunter can do with the wild animals around it and does it when asked: pounce
     /// on prey, eat from a kill, or pick one up, carry it and put it down again. <paramref name="upTree"/> is true on a
-    /// branch or treetop, where there is nothing to pounce on and the prompts are added to the climbing ones.
+    /// branch or treetop, where there is nothing to pounce on. Only the prompt to eat a kill is shown.
     /// </summary>
     private void UpdateHunting(float dt, bool resting, bool upTree)
     {
@@ -93,18 +93,15 @@ public partial class Player
         if (Wildlife.CarcassNear(Mouth, Stats.EatReach + 0.5f) is not { } carcass)
             return;
 
-        string name = carcass.DisplayName.ToLower();
         bool light = Wildlife.CanCarry(carcass, Stats.BodyRadius * Stats.BodyHeight * CarryStrength);
-        Prompt(light ? $"E or click to eat the {name}, F to pick it up" : $"E or click to eat the {name} (too heavy to carry)", upTree);
+        ActionPrompt = $"E or click to eat the {carcass.DisplayName.ToLower()}";
         if (Input.IsActionJustPressed(InputSetup.Eat))
         {
             EatFrom(carcass);
 
             // A kill on the ground is shared: the pack crowds in to eat too. Up a tree, it's the cat's alone.
-            if (!upTree && _herds.TryGetValue(Animal, out var pack) && pack.Feast(carcass))
-            {
-                Announce($"Your {pack.Word} eats the {name} with you", 3f);
-            }
+            if (!upTree && _herds.TryGetValue(Animal, out var pack))
+                pack.Feast(carcass);
         }
         else if (light && Input.IsActionJustPressed(InputSetup.Attack))
             _carrying = carcass;
@@ -117,11 +114,9 @@ public partial class Player
     /// </summary>
     private void Pounce(Animal prey)
     {
-        string name = prey.DisplayName.ToLower();
+        // Attacking has no prompt: F bites (and G leaps on) without a word on screen, and so does being too winded to
+        // pounce.
         bool grip = Stats.Can(Ability.Grip);
-        ActionPrompt = IsExhausted ? "Too winded to pounce"
-            : grip ? $"F to attack the {name}, G to leap on and hold it"
-            : $"Press F to attack the {name}";
         if (IsExhausted)
             return;
         if (grip && Input.IsActionJustPressed(InputSetup.Grip))
@@ -150,10 +145,8 @@ public partial class Player
         // A cub bites with a cub's jaws: bite strength goes with bulk, so a newborn takes a few bites to kill an otter and a dozen or more for a wolf.
         // Unless the bite finished it, the leader's pack piles in to help.
         if (!Wildlife!.Bite(prey, BiteStrength * Stats.Strength * Size * Size, GlobalPosition)
-            && _herds.TryGetValue(Animal, out var pack) && pack.Attack(prey))
-        {
-            Announce($"Your {pack.Word} joins the attack on the {prey.DisplayName.ToLower()}!", 3f);
-        }
+            && _herds.TryGetValue(Animal, out var pack))
+            pack.Attack(prey);
     }
 
     /// <summary>With a kill in its jaws, the hunter can eat from it where it stands, or put it down: up a tree it stays put there.</summary>
@@ -166,7 +159,7 @@ public partial class Player
             return;
         }
 
-        Prompt($"E or click to eat the {held.DisplayName.ToLower()}, F to put it down", upTree);
+        ActionPrompt = $"E or click to eat the {held.DisplayName.ToLower()}";
         if (Input.IsActionJustPressed(InputSetup.Eat))
             EatFrom(held);
         else if (Input.IsActionJustPressed(InputSetup.Attack))
@@ -198,9 +191,14 @@ public partial class Player
         if (Wildlife is null)
             return;
 
+        if (_lifting is not null)
+        {
+            Lifting();
+            return;
+        }
+
         if (_carrying is { } held)
         {
-            ActionPrompt = $"Land to eat the {held.DisplayName.ToLower()}, F to let go";
             if (Input.IsActionJustPressed(InputSetup.Attack))
             {
                 Wildlife.Drop(held);
@@ -214,7 +212,13 @@ public partial class Player
         if (Wildlife.PreyNear(talons, TalonReach * Size) is not { } prey)
             return;
 
-        ActionPrompt = $"Press F to snatch the {prey.DisplayName.ToLower()}";
+        // As on the ground, swooping over prey isn't announced: F snatches it and G lifts it without a prompt.
+        bool liftable = CanLift(prey) && !IsExhausted;
+        if (liftable && Input.IsActionJustPressed(InputSetup.Grip))
+        {
+            StartLift(prey);
+            return;
+        }
         if (!Input.IsActionJustPressed(InputSetup.Attack))
             return;
 
@@ -227,10 +231,13 @@ public partial class Player
     /// <summary>Keeps a carried kill in the jaws, or a flying bird's talons, wherever the hunter has got to this frame.</summary>
     private void HoldKill()
     {
+        // In flight a bird holds what it carries in its talons, legs reaching down under it.
+        if (Animal is BaldEagle eagle)
+            eagle.Clutching = Animal.IsFlying && (_carrying is not null || _lifting is not null);
         if (_carrying is null || Wildlife is null)
             return;
         var grip = Animal.IsFlying
-            ? GlobalPosition
+            ? Talons
             : GlobalPosition + Animal.GlobalBasis.Orthonormalized() * new Vector3(0f, Stats.BodyHeight * 0.5f, -Stats.MouthDistance);
         Wildlife.Hold(_carrying, grip, Animal.GlobalRotation.Y);
     }
@@ -239,6 +246,7 @@ public partial class Player
     private void StopHunting()
     {
         LetGo();
+        DropLifted();
         if (_carrying is not null)
             Wildlife?.Drop(_carrying);
         _carrying = null;
@@ -246,8 +254,4 @@ public partial class Player
         _pounce = 0f;
         _lunge = Vector3.Zero;
     }
-
-    /// <summary>On the ground a hunting prompt replaces any other; up a tree it goes under the climbing prompt.</summary>
-    private void Prompt(string text, bool below) =>
-        ActionPrompt = below && ActionPrompt is not null ? ActionPrompt + "\n" + text : text;
 }

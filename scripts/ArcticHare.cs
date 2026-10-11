@@ -14,6 +14,12 @@ public partial class ArcticHare : Animal
 {
     private const int Seed = 53;
 
+    /// <summary>
+    /// How much bigger than a real arctic hare this one is drawn: a giant hare about a metre long, big enough to see
+    /// bounding across the snow from afar. The model is built to a real hare's measurements and scaled up whole.
+    /// </summary>
+    private const float BodyScale = 2f;
+
     /// <summary>Height of the middle of the body above the ground while crouched.</summary>
     private const float SpineHeight = 0.2f;
 
@@ -46,15 +52,15 @@ public partial class ArcticHare : Animal
         // Arctic hares can bound away at over 60 km/h, faster than a wolf, but only in short bursts: a wolf that keeps
         // after one can run it down once it tires.
         Scores = new() { JumpHeight = 6, JumpLength = 8, LandSpeed = 8, WaterSpeed = 2, Agility = 10, Stamina = 3 },
-        FloatDepth = 0.15f,
-        WadeDepth = 0.1f,
-        MouthDistance = 0.25f,
-        EatReach = 0.2f,
+        FloatDepth = 0.15f * BodyScale,
+        WadeDepth = 0.1f * BodyScale,
+        MouthDistance = 0.25f * BodyScale,
+        EatReach = 0.2f * BodyScale,
         CanGraze = true,
-        BodyRadius = 0.15f,
-        BodyHeight = 0.35f,
-        CameraHeight = 0.3f,
-        CameraDistance = 2f,
+        BodyRadius = 0.15f * BodyScale,
+        BodyHeight = 0.35f * BodyScale,
+        CameraHeight = 0.3f * BodyScale,
+        CameraDistance = 2f * BodyScale,
     };
 
     public override void _Ready() => Build();
@@ -123,6 +129,7 @@ public partial class ArcticHare : Animal
 
     private void Build()
     {
+        Scale = Vector3.One * BodyScale;
         var rng = new RandomNumberGenerator { Seed = Seed };
         var coat = ProceduralTextures.Fur(Seed, new Color(0.82f, 0.84f, 0.87f), new Color(0.97f, 0.98f, 1f), 5f);
         var black = new StandardMaterial3D { AlbedoColor = new Color(0.07f, 0.06f, 0.06f), Roughness = 0.8f };
