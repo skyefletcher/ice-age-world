@@ -22,6 +22,7 @@ public static class InputSetup
     public const string LieDown = "lie_down";
     public const string SwitchAnimal = "switch_animal";
     public const string Map = "map";
+    public const string Shop = "shop";
 
     public static void Register()
     {
@@ -42,6 +43,8 @@ public static class InputSetup
         Add(LieDown, Key.X);
         Add(SwitchAnimal, Key.Tab);
         Add(Map, Key.M);
+        // The animal shop, to buy animals with coins and play as them.
+        Add(Shop, Key.B);
     }
 
     private static void Add(string action, params Key[] keys) =>

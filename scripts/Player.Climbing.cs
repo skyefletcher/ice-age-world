@@ -75,6 +75,7 @@ public partial class Player
         _leapAtTree = false;
         _tree = tree;
         _mode = Mode.Climbing;
+        DoChore(ChoreKind.Climb, 1f);
         _climbHeight = Mathf.Max(0f, GlobalPosition.Y - tree.Transform.Origin.Y);
         _climbAngle = Mathf.Atan2(-toTrunk.Z, -toTrunk.X);
         _headFirst = false;
@@ -158,7 +159,7 @@ public partial class Player
             : Quaternion.FromEuler(new Vector3(Mathf.Pi / 2f, Yaw(-outward), 0));
         Animal.Quaternion = Animal.Quaternion.Normalized().Slerp(cling, Mathf.Min(1f, 8f * dt));
         bool moving = rate != 0f || sideways != 0f;
-        Animal.Animate(moving ? Mathf.Max(Mathf.Abs(rate), ClimbSpeed * 0.6f) : 0f, moving ? 1f : 0f, 0f, dt);
+        AnimateAnimal(moving ? Mathf.Max(Mathf.Abs(rate), ClimbSpeed * 0.6f) : 0f, moving ? 1f : 0f, 0f, dt);
     }
 
     /// <summary>The sturdy branch growing out of the trunk right beside the animal's paws, if there is one.</summary>
@@ -258,7 +259,7 @@ public partial class Player
             Mathf.LerpAngle(Animal.Rotation.Y, yaw, Mathf.Min(1f, Stats.TurnSpeed * dt)),
             0);
         bool moving = Mathf.Abs(wanted) > 0.1f && _along < reach;
-        Animal.Animate(moving ? pace : 0f, moving ? 1f : 0f, _headDip, dt);
+        AnimateAnimal(moving ? pace : 0f, moving ? 1f : 0f, _headDip, dt);
     }
 
     /// <summary>Scrambles from the top of the trunk onto the very top of the tree and stands there until told to leave.</summary>
@@ -289,7 +290,7 @@ public partial class Player
         UpdateNeeds(dt, exerting: false);
         UpdateStamina(dt, effort: 0f);
         bool moving = _hop < 1f || turn != 0f;
-        Animal.Animate(moving ? ClimbSpeed * 0.5f : 0f, moving ? 1f : 0f, _headDip, dt);
+        AnimateAnimal(moving ? ClimbSpeed * 0.5f : 0f, moving ? 1f : 0f, _headDip, dt);
         if (_hop < 1f)
             return;
 

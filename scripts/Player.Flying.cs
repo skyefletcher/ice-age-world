@@ -105,7 +105,7 @@ public partial class Player
 
         Animal.Flap = Mathf.MoveToward(Animal.Flap, flapping ? 1f : 0f, 4f * dt);
         Animal.Dive = Mathf.MoveToward(Animal.Dive, diving ? 1f : 0f, 3f * dt);
-        Animal.Animate(speed, 0f, 0f, dt);
+        AnimateAnimal(speed, 0f, 0f, dt);
     }
 
     private void Land()

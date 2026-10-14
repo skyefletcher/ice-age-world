@@ -64,7 +64,8 @@ public partial class Player
     /// <summary>
     /// Works out what the hunter can do with the wild animals around it and does it when asked: pounce
     /// on prey, eat from a kill, or pick one up, carry it and put it down again. <paramref name="upTree"/> is true on a
-    /// branch or treetop, where there is nothing to pounce on. Only the prompt to eat a kill is shown.
+    /// branch or treetop, where there is nothing to pounce on. The prompt says how to eat a kill and how to pick it up or
+    /// put it down; attacks go unannounced.
     /// </summary>
     private void UpdateHunting(float dt, bool resting, bool upTree)
     {
@@ -94,7 +95,10 @@ public partial class Player
             return;
 
         bool light = Wildlife.CanCarry(carcass, Stats.BodyRadius * Stats.BodyHeight * CarryStrength);
-        ActionPrompt = $"E or click to eat the {carcass.DisplayName.ToLower()}";
+        string name = carcass.DisplayName.ToLower();
+        ActionPrompt = light
+            ? $"E or click to eat the {name}\nF to pick it up"
+            : $"E or click to eat the {name}\n(too heavy to pick up)";
         if (Input.IsActionJustPressed(InputSetup.Eat))
         {
             EatFrom(carcass);
@@ -159,7 +163,7 @@ public partial class Player
             return;
         }
 
-        ActionPrompt = $"E or click to eat the {held.DisplayName.ToLower()}";
+        ActionPrompt = $"E or click to eat the {held.DisplayName.ToLower()}\nF to put it down";
         if (Input.IsActionJustPressed(InputSetup.Eat))
             EatFrom(held);
         else if (Input.IsActionJustPressed(InputSetup.Attack))
@@ -199,6 +203,7 @@ public partial class Player
 
         if (_carrying is { } held)
         {
+            ActionPrompt = $"F to drop the {held.DisplayName.ToLower()}, or land to eat it";
             if (Input.IsActionJustPressed(InputSetup.Attack))
             {
                 Wildlife.Drop(held);
@@ -212,8 +217,10 @@ public partial class Player
         if (Wildlife.PreyNear(talons, TalonReach * Size) is not { } prey)
             return;
 
-        // As on the ground, swooping over prey isn't announced: F snatches it and G lifts it without a prompt.
+        // As on the ground, the strike itself isn't announced, but picking something up is: G lifts it alive.
         bool liftable = CanLift(prey) && !IsExhausted;
+        if (liftable)
+            ActionPrompt = $"G to pick up the {prey.DisplayName.ToLower()}";
         if (liftable && Input.IsActionJustPressed(InputSetup.Grip))
         {
             StartLift(prey);
@@ -242,10 +249,11 @@ public partial class Player
         Wildlife.Hold(_carrying, grip, Animal.GlobalRotation.Y);
     }
 
-    /// <summary>Drops whatever the hunter has in its jaws and ends any pounce, e.g. when switching animal or respawning.</summary>
+    /// <summary>Drops whatever the hunter has in its jaws (or an otter in its paws) and ends any pounce, e.g. when switching animal or respawning.</summary>
     private void StopHunting()
     {
         LetGo();
+        DropHeld();
         DropLifted();
         if (_carrying is not null)
             Wildlife?.Drop(_carrying);

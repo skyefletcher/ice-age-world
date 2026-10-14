@@ -24,9 +24,6 @@ public partial class Player
     /// </summary>
     public bool IsWolfPrey => !IsDead && Animal is not (ArcticWolf or SnowLeopard or PolarBear);
 
-    /// <summary>The animals the player can be reborn as, by name, in switching order.</summary>
-    public string[] AnimalNames => System.Array.ConvertAll(_animals, a => a.DisplayName);
-
     /// <summary>
     /// Whether a wolf standing at <paramref name="from"/> can get its teeth into the animal: not when it's flying overhead
     /// or up a tree, only on the ground or in the water beside it.
@@ -117,7 +114,9 @@ public partial class Player
         StopHunting();
         _courtship = 0f;
         _mode = Mode.Ground;
-        Animal.IsFlying = Animal.IsClimbing = false;
+        Animal.IsFlying = Animal.IsClimbing = Animal.IsDiving = false;
+        // Its body floats back up to the surface (see LieDead), level again.
+        Animal.Rotation = new Vector3(0, Animal.Rotation.Y, 0);
         _feeding = Feeding.None;
         _grassTarget = -1;
         Posture = Posture.Lying;
@@ -139,7 +138,7 @@ public partial class Player
         Animal.IsSwimming = afloat;
         Animal.Settle(Posture.Lying, 0.6f, dt);
         Animal.Dead = Mathf.MoveToward(Animal.Dead, 1f, dt / 0.8f);
-        Animal.Animate(0f, 0f, 0f, dt);
+        AnimateAnimal(0f, 0f, 0f, dt);
 
         // The last of the blood runs out as it falls.
         if (_blood is not null && Animal.Dead >= 1f)
@@ -147,8 +146,8 @@ public partial class Player
     }
 
     /// <summary>
-    /// Starts life again as a newborn of the animal at <paramref name="index"/>, at the start, hungry, thirsty and
-    /// with a whole life ahead of it.
+    /// Starts life again as a grown animal of the kind at <paramref name="index"/>, at the start, hungry, thirsty and
+    /// with full health.
     /// </summary>
     public void Reborn(int index)
     {
@@ -157,12 +156,12 @@ public partial class Player
         if (_herds.TryGetValue(Animal, out var oldHerd))
             oldHerd.Visible = false;
 
-        Age = 0f;
         Health = 100f;
         _sinceBitten = 100f;
         Hunger = 75f;
         Thirst = 60f;
         Stamina = 100f;
+        Air = 100f;
         IsExhausted = false;
         BecomeAnimal(index);
         Respawn();

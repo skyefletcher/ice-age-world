@@ -46,6 +46,9 @@ public enum Ability
 
     /// <summary>Leaps onto prey and clamps its jaws on, holding on and doing far more damage than a bite.</summary>
     Grip = 32,
+
+    /// <summary>Dives under the water and swims about down there, holding its breath.</summary>
+    Dive = 64,
 }
 
 /// <summary>How an animal is resting, if at all.</summary>
@@ -227,6 +230,9 @@ public abstract partial class Animal : Node3D
     public bool IsSwimming { get; set; }
     public bool IsFlying { get; set; }
     public bool IsClimbing { get; set; }
+
+    /// <summary>Swimming about under the water rather than on top of it.</summary>
+    public bool IsDiving { get; set; }
 
     /// <summary>0..1 how hard a flying animal is beating its wings; 0 glides on outstretched wings.</summary>
     public float Flap { get; set; }
@@ -452,7 +458,7 @@ public abstract partial class Animal : Node3D
     /// <paramref name="colouring"/> is given it paints each vertex from its position and normal, for materials that
     /// use vertex colour.
     /// </summary>
-    protected static ArrayMesh Ellipsoid(Func<Vector3, Vector3> shape, int segments, int rings, Material material,
+    public static ArrayMesh Ellipsoid(Func<Vector3, Vector3> shape, int segments, int rings, Material material,
         Func<Vector3, Vector3, Color>? colouring = null)
     {
         var mesh = new MeshBuilder();
@@ -475,7 +481,7 @@ public abstract partial class Animal : Node3D
     }
 
     /// <summary>A plain axis-aligned ellipsoid with the given half-extents.</summary>
-    protected static ArrayMesh Ellipsoid(Vector3 radii, int segments, int rings, Material material,
+    public static ArrayMesh Ellipsoid(Vector3 radii, int segments, int rings, Material material,
         Func<Vector3, Vector3, Color>? colouring = null) =>
         Ellipsoid(u => u * radii, segments, rings, material, colouring);
 

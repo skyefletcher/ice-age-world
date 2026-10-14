@@ -58,6 +58,7 @@ public partial class Player
             DropLifted();
             return;
         }
+        ActionPrompt = $"G to drop the {prey.DisplayName.ToLower()}";
         Wildlife.Lift(prey, Talons, Animal.GlobalRotation.Y);
     }
 

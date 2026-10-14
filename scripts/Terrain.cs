@@ -129,8 +129,11 @@ public partial class Terrain : Node3D
     [Export] public Vector2 MountainHeights { get; set; } = new(30f, 55f);
     [Export] public Vector2 MountainRadii { get; set; } = new(50f, 80f);
 
-    /// <summary>Depth of water at the centre of each lake.</summary>
-    [Export] public float LakeDepth { get; set; } = 5f;
+    /// <summary>
+    /// Depth of water at the centre of each small lake, deep enough for waterweed and for an otter to dive down for
+    /// shellfish (the ocean is deeper still).
+    /// </summary>
+    [Export] public float LakeDepth { get; set; } = 8f;
 
     /// <summary>Width of the sloping bank between a lake's water line and the surrounding land.</summary>
     public const float ShoreWidth = 6f;
@@ -156,6 +159,9 @@ public partial class Terrain : Node3D
     private static readonly Color Snow = new(0.93f, 0.95f, 1f);
     private static readonly Color Rock = new(0.45f, 0.45f, 0.48f);
     private static readonly Color Mud = new(0.42f, 0.37f, 0.28f);
+
+    /// <summary>The pale grey silt ground fine by the glaciers that settles on the bed of an ice-age lake.</summary>
+    private static readonly Color Silt = new(0.44f, 0.44f, 0.4f);
 
     /// <summary>
     /// Height of the ground underfoot at each vertex: the floor of a cave where one has been dug, so this is what the
@@ -308,6 +314,15 @@ public partial class Terrain : Node3D
         return nearest;
     }
 
+    /// <summary>Height of the water of the lake whose basin a point is in, or minus infinity outside every lake.</summary>
+    private float LakeSurfaceAt(float x, float z)
+    {
+        foreach (var lake in _lakes)
+            if (new Vector2(x, z).DistanceTo(lake.Centre) < lake.Radius + lake.Shore)
+                return lake.Surface;
+        return float.NegativeInfinity;
+    }
+
     private float HeightAt(int x, int z) => At(_heights, x, z);
 
     private float At(float[] heights, int x, int z) =>
@@ -340,7 +355,9 @@ public partial class Terrain : Node3D
         rock = Mathf.Max(rock, Mathf.SmoothStep(8f, 12f, drop));
         // Mud only down by the water: the mountains standing in the ocean keep their rock and snow.
         float mud = (1f - Mathf.SmoothStep(1f, 3.5f, DistanceFromWater(x, z))) * (1f - Mathf.SmoothStep(2f, 5f, h - NearestLake(x, z).Surface));
-        return Steppe.Lerp(Snow, snow).Lerp(Rock, rock).Lerp(Mud, mud);
+        // Out from the muddy shallows, the lake bed is silt.
+        float silt = Mathf.SmoothStep(1.5f, 4f, LakeSurfaceAt(x, z) - h);
+        return Steppe.Lerp(Snow, snow).Lerp(Rock, rock).Lerp(Mud, mud).Lerp(Silt, silt);
     }
 
     private void GenerateHeights()
@@ -406,8 +423,9 @@ public partial class Terrain : Node3D
         int placed = 0;
         for (int attempt = 0; placed < LakeCount && attempt < 500; attempt++)
         {
-            float radius = rng.RandfRange(14f, 24f);
-            // The first lake goes near the spawn point so there's always water close by.
+            // The first lake goes near the spawn point so there's always water close by. It's the biggest of the small
+            // ones, roomy enough to swim and dive about in.
+            float radius = placed == 0 ? 45f : rng.RandfRange(22f, 36f);
             float distance = placed == 0 ? radius + 30f : rng.RandfRange(60f, HalfSize - MountainWidth - radius - ShoreWidth);
             float angle = rng.Randf() * Mathf.Tau;
             var centre = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * distance;

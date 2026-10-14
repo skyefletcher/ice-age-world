@@ -619,8 +619,12 @@ public partial class Wildlife : Node3D
     /// </summary>
     private bool Wound(Beast beast, float damage)
     {
+        bool wasAlive = !beast.IsDead;
         beast.Health -= damage / beast.Toughness;
         Spill(beast);
+        // Brought down by the player, its pack or the bleeding it left: that counts as a hunt.
+        if (wasAlive && beast.IsDead)
+            Player?.Hunted();
         if (beast.Group.Kind == Kind.Loner && beast.Group.HuntsPlayer && beast.Health <= RivalGivesIn)
         {
             beast.Health = RivalGivesIn;
@@ -1953,7 +1957,7 @@ public partial class Wildlife : Node3D
     {
         _squabbleWait = Mathf.Max(0f, _squabbleWait - dt);
         if (Player is not { } player || player.IsDead || player.Animal is not SnowLeopard
-            || !player.IsGrownUp || !player.OnTheGround || FightingOverPlayer)
+            || !player.OnTheGround || FightingOverPlayer)
             return;
 
         var near = _groups

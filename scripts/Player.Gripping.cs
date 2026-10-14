@@ -102,6 +102,7 @@ public partial class Player
                 LetGo();
                 return;
             }
+            ActionPrompt = $"G or Space to let go of the {prey.DisplayName.ToLower()}";
 
             UpdateNeeds(dt, exerting: true);
             UpdateStamina(dt, effort: GripEffort);
@@ -164,7 +165,7 @@ public partial class Player
         // Head down and jaws locked, legs scrabbling to keep up as the prey drags it along.
         float speed = (moved with { Y = 0f }).Length() / Mathf.Max(dt, 0.001f);
         Animal.IsSwimming = false;
-        Animal.Animate(speed, Mathf.Clamp(speed / Stats.WalkSpeed, 0f, 1f), 0.9f, dt);
+        AnimateAnimal(speed, Mathf.Clamp(speed / Stats.WalkSpeed, 0f, 1f), 0.9f, dt);
     }
 
     /// <summary>

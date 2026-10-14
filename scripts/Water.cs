@@ -4,8 +4,8 @@ using Godot;
 namespace IceAgeWorld;
 
 /// <summary>
-/// Draws the water surface of each lake and the ocean, rolling with waves (see water.gdshader), and answers "is there
-/// water here, and how high?" for drinking and swimming, waves and all.
+/// Draws the water surface of each lake and the ocean, rolling with waves (see water.gdshader) and seen from above and
+/// from below, and answers "is there water here, and how high?" for drinking, swimming and diving, waves and all.
 /// </summary>
 public partial class Water : Node3D
 {
@@ -135,4 +135,7 @@ public partial class Water : Node3D
 
         return null;
     }
+
+    /// <summary>Whether a point is under the water of a lake.</summary>
+    public bool IsUnderwater(Vector3 point) => SurfaceAt(point) is { } surface && point.Y < surface;
 }

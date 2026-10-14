@@ -96,7 +96,7 @@ public partial class Player : CharacterBody3D
 
     private enum Feeding { None, Eating, Drinking }
 
-    private enum Mode { Ground, Flying, Climbing, Treetop, Branch }
+    private enum Mode { Ground, Flying, Climbing, Treetop, Branch, Diving }
 
     private Animal[] _animals = [];
     private readonly Dictionary<Animal, Herd> _herds = [];
@@ -133,17 +133,7 @@ public partial class Player : CharacterBody3D
         _springArm.Rotation = new Vector3(-0.35f, 0, 0);
 
         // Every animal is built up front, so switching is instant; only the current one is shown.
-        _animals =
-        [
-            new Mammoth { Name = "Mammoth" },
-            new SnowLeopard { Name = "SnowLeopard" },
-            new ArcticWolf { Name = "ArcticWolf" },
-            new SeaOtter { Name = "SeaOtter" },
-            new BaldEagle { Name = "BaldEagle" },
-            new Reindeer { Name = "Reindeer" },
-            new Moose { Name = "Moose" },
-            new PolarBear { Name = "PolarBear" },
-        ];
+        _animals = Array.ConvertAll(Kinds, make => make());
         foreach (var animal in _animals)
         {
             animal.Visible = false;
@@ -167,12 +157,55 @@ public partial class Player : CharacterBody3D
                 AddChild(herd);
             }
         }
-        BecomeAnimal(0);
+        BecomeAnimal(Math.Max(0, Array.FindIndex(_animals, Wallet.Owns)));
     }
 
-    /// <summary>Swaps to the next animal, keeping the way the old one was facing.</summary>
+    /// <summary>
+    /// Makes each playable animal, in switching order. Other players' animals are built from these too (see
+    /// <see cref="RemotePlayer"/>), so an animal is known over the network by its place in this list.
+    /// </summary>
+    public static readonly Func<Animal>[] Kinds =
+    [
+        () => new Mammoth { Name = "Mammoth" },
+        () => new SnowLeopard { Name = "SnowLeopard" },
+        () => new ArcticWolf { Name = "ArcticWolf" },
+        () => new SeaOtter { Name = "SeaOtter" },
+        () => new BaldEagle { Name = "BaldEagle" },
+        () => new Reindeer { Name = "Reindeer" },
+        () => new Moose { Name = "Moose" },
+        () => new PolarBear { Name = "PolarBear" },
+    ];
+
+    /// <summary>Every animal the player can be, in switching order, bought or not.</summary>
+    public IReadOnlyList<Animal> Animals => _animals;
+
+    /// <summary>Where the current animal comes in <see cref="Kinds"/>.</summary>
+    public int AnimalIndex => _animalIndex;
+
+    /// <summary>How the model was last animated: its speed, stride and head-dip, which other players are sent to copy.</summary>
+    public (float Speed, float Stride, float Eat) Motion { get; private set; }
+
+    private void AnimateAnimal(float speed, float stride, float eat, float dt)
+    {
+        Motion = (speed, stride, eat);
+        Animal.Animate(speed, stride, eat, dt);
+    }
+
+    /// <summary>Swaps to the next animal the player has bought, keeping the way the old one was facing.</summary>
     public void SwitchAnimal()
     {
+        int next = _animalIndex;
+        do
+            next = (next + 1) % _animals.Length;
+        while (!Wallet.Owns(_animals[next]) && next != _animalIndex);
+        SwitchTo(next);
+    }
+
+    /// <summary>Swaps to the animal at <paramref name="index"/>, keeping the way the old one was facing and how grown it is.</summary>
+    public void SwitchTo(int index)
+    {
+        if (index == _animalIndex)
+            return;
         float yaw = Animal.Rotation.Y;
         LeaveTree();
         StopFalling();
@@ -180,7 +213,7 @@ public partial class Player : CharacterBody3D
         if (_herds.TryGetValue(Animal, out var oldHerd))
             oldHerd.Visible = false;
 
-        BecomeAnimal((_animalIndex + 1) % _animals.Length);
+        BecomeAnimal(index);
         Animal.Rotation = new Vector3(0, yaw, 0);
     }
 
@@ -190,7 +223,7 @@ public partial class Player : CharacterBody3D
         _animalIndex = index;
         _mode = Mode.Ground;
         Animal.Visible = true;
-        Animal.IsFlying = Animal.IsClimbing = Animal.IsSwimming = false;
+        Animal.IsFlying = Animal.IsClimbing = Animal.IsSwimming = Animal.IsDiving = false;
         StopFalling();
         Posture = Posture.Standing;
         Animal.Sitting = Animal.Lying = 0f;
@@ -209,9 +242,13 @@ public partial class Player : CharacterBody3D
             herd.Visible = true;
             herd.Gather();
         }
+        FillChores();
     }
 
-    /// <summary>Places the player just above the ground at the centre of the map.</summary>
+    /// <summary>
+    /// Places the player just above the ground near the centre of the map, a few metres off it at random, so players
+    /// starting together don't all land in one heap.
+    /// </summary>
     public void Respawn()
     {
         _mode = Mode.Ground;
@@ -221,8 +258,10 @@ public partial class Player : CharacterBody3D
         Animal.Sitting = Animal.Lying = 0f;
         Animal.Rotation = new Vector3(0, Animal.Rotation.Y, 0);
         StopHunting();
-        float ground = Terrain?.GetHeight(0, 0) ?? 0f;
-        GlobalPosition = new Vector3(0, ground + 2f, 0);
+        float x = (float)GD.RandRange(-6.0, 6.0), z = (float)GD.RandRange(-6.0, 6.0);
+        float ground = Terrain?.GetHeight(x, z) ?? 0f;
+        GlobalPosition = new Vector3(x, ground + 2f, z);
+        _lastPlace = GlobalPosition;
         Velocity = Vector3.Zero;
         if (_herds.TryGetValue(Animal, out var herd))
             herd.Gather();
@@ -266,8 +305,9 @@ public partial class Player : CharacterBody3D
             LieDead(dt);
             return;
         }
-        Grow(dt);
+        TrackChores(dt);
         Heal(dt);
+        Breathe(dt);
         Court(dt);
 
         // Movement is relative to where the camera is facing, flattened onto the ground plane.
@@ -281,6 +321,9 @@ public partial class Player : CharacterBody3D
         {
             case Mode.Ground when IsGripping:
                 HoldOn(dt);
+                break;
+            case Mode.Diving:
+                Dive(dt, direction);
                 break;
             case Mode.Flying:
                 Fly(dt, direction);
@@ -329,6 +372,7 @@ public partial class Player : CharacterBody3D
         // back on its feet.
         bool resting = UpdatePosture(dt, IsOnFloor() && !IsSwimming && !IsFeeding, direction != Vector3.Zero);
         UpdateFeeding(dt, lookForFood: IsOnFloor() && !IsSwimming);
+        Fight(dt, resting);
         if (Stats.Can(Ability.Hunt))
             UpdateHunting(dt, resting, upTree: false);
 
@@ -347,6 +391,10 @@ public partial class Player : CharacterBody3D
             TakeOff(direction);
             return;
         }
+
+        // An otter at the surface can dive under, and eats there what it brought up from the bed.
+        if (IsSwimming && !resting && TryDive())
+            return;
 
         bool airborne = false;
         if (IsSwimming)
@@ -428,7 +476,7 @@ public partial class Player : CharacterBody3D
         }
         Animal.IsSwimming = IsSwimming;
         UpdateLanding(dt);
-        Animal.Animate(groundSpeed, stride, _headDip, dt);
+        AnimateAnimal(groundSpeed, stride, _headDip, dt);
     }
 
     /// <summary>Heading that faces a level direction, as a rotation about Y (the models face -Z).</summary>
@@ -500,13 +548,17 @@ public partial class Player : CharacterBody3D
             Grassland!.Eat(_grassTarget);
             _grassTarget = -1;
             Hunger = Mathf.Min(100f, Hunger + FoodPerMouthful);
+            DoChore(ChoreKind.Graze, 1f);
         }
 
         // Meat is torn off at the same point in the mouthful.
         if (_feeding == Feeding.Eating && progress >= 0.5f && _carcass is not null && !_bitten)
         {
             if (Wildlife!.EatFrom(_carcass, MeatShare))
+            {
                 Hunger = Mathf.Min(100f, Hunger + MeatPerMouthful);
+                DoChore(ChoreKind.EatMeat, 1f);
+            }
             _bitten = true;
         }
 

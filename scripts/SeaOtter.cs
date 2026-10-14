@@ -56,6 +56,8 @@ public partial class SeaOtter : Animal
     public override AnimalStats Stats { get; } = new()
     {
         Scores = new() { JumpHeight = 3, JumpLength = 3, LandSpeed = 5, WaterSpeed = 9, Agility = 9, Stamina = 6 },
+        // Sea otters dive to the bottom for their food, sea urchins, clams and crabs, and bring it up to eat.
+        Abilities = Ability.Dive,
         FloatDepth = SpineHeight,
         WadeDepth = 0.12f,
         MouthDistance = 0.5f,
@@ -78,7 +80,8 @@ public partial class SeaOtter : Animal
 
         // Swimming speed comes with a little extra for treading water; take it back off to see if the otter is idling.
         float swimSpeed = IsSwimming ? Mathf.Max(0f, speed - 2f) : 0f;
-        bool floating = IsSwimming && swimSpeed < FloatSpeed;
+        // Under the water it always swims belly-down: it only rolls over to float at the surface.
+        bool floating = IsSwimming && !IsDiving && swimSpeed < FloatSpeed;
         _onBack = Mathf.MoveToward(_onBack, floating ? 1f : 0f, dt * 1.5f);
         float back = Mathf.SmoothStep(0f, 1f, _onBack);
 

@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://fxbumm8pyga"
-path="res://.godot/imported/bolt.svg-e9f8833ef43fc6ba4fd0f68055d74b19.ctex"
+uid="uid://b5fdv1kbs11pu"
+path="res://.godot/imported/bubble.svg-eb0ed47ce180dd6a1c3f624acfd5ae93.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://icons/bolt.svg"
-dest_files=["res://.godot/imported/bolt.svg-e9f8833ef43fc6ba4fd0f68055d74b19.ctex"]
+source_file="res://icons/bubble.svg"
+dest_files=["res://.godot/imported/bubble.svg-eb0ed47ce180dd6a1c3f624acfd5ae93.ctex"]
 
 [params]
 
