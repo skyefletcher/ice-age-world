@@ -18,11 +18,11 @@ public partial class PolarBear : Quadruped
     private const float BodyCentre = 1.02f;
 
     /// <summary>
-    /// How much bigger than a modern polar bear this one is drawn: an ice-age giant some four metres tall at the shoulder,
-    /// bigger than a mammoth, as the great cave and short-faced bears of the ice age outsized every bear alive today.
-    /// The model is built to a real bear's measurements and scaled up whole.
+    /// How much bigger than a modern polar bear this one is drawn: an ice-age giant some 2.6 m tall at the shoulder,
+    /// as the great cave and short-faced bears of the ice age outsized every bear alive today, though still well short of
+    /// a mammoth. The model is built to a real bear's measurements and scaled up whole.
     /// </summary>
-    private const float BodyScale = 3f;
+    private const float BodyScale = 2f;
 
     /// <summary>
     /// A friendlier face than a real polar bear's small, long head: the whole head drawn half as big again on a short,
@@ -42,15 +42,23 @@ public partial class PolarBear : Quadruped
     public override string DisplayName => "Polar bear";
     public override string YoungName => "Polar bear cub";
 
+    // A female polar bear weighs about half as much as a male.
+    protected override float FemaleSize => 0.8f;
+
+    // Its long neck lets the bear swing its head well round to either side.
+    protected override float HeadTurn => 1.3f;
+
     public override AnimalStats Stats { get; } = new()
     {
         // Polar bears can gallop at about 40 km/h in short bursts, and swim for days across open sea, paddling with
         // their huge forepaws.
         Scores = new() { JumpHeight = 4, JumpLength = 6, LandSpeed = 7, WaterSpeed = 8, Agility = 5, Stamina = 6 },
-        Abilities = Ability.Hunt,
+        Abilities = Ability.Hunt | Ability.Dive,
         // A swipe of the paw and a bite from a bear this size can bring down a mammoth.
         Strength = 8f,
         FloatDepth = 0.95f * BodyScale,
+        // Polar bears dive after seals and seabirds, staying down a minute or so at most.
+        BreathSeconds = 40f,
         WadeDepth = 0.6f * BodyScale,
         MouthDistance = 1.35f * BodyScale,
         EatReach = 0.7f * BodyScale,
@@ -74,11 +82,19 @@ public partial class PolarBear : Quadruped
     protected override float LieDrop => 0.52f;
     protected override float DeadFlank => 0.45f;
     protected override float DeadRoll => BodyCentre;
-    // Long legs take long, slow strides: three times the size, the legs turn over well under twice as slowly.
+    // Long legs take long, slow strides: twice the size, the legs turn over more slowly.
     protected override float Cadence => 2.6f / Mathf.Sqrt(BodyScale);
     protected override bool SitsUp => true;
     protected override float SitPitch => 0.85f;
     protected override float HeadDown => -1.4f;
+
+    // A polar bear eats mostly blubber, pulling big chunks off with a strong backward heave of its long neck and
+    // swallowing them nearly whole. It laps water.
+    protected override FeedingStyle FeedingStyleFor(Food food) => food switch
+    {
+        Food.Water => Lapping with { Laps = 3f },
+        _ => new() { BiteMin = 1f, BiteMax = 1.8f, BiteSeconds = 0.35f, Held = 0.4f, Tug = 0.35f, Tilt = 0.1f, Gulp = 0.15f },
+    };
 
     protected override void AnimateExtras(float stride, float run, float dt)
     {

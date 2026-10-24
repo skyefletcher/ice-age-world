@@ -37,9 +37,12 @@ public static class Wallet
     {
         Reindeer or SeaOtter or ArcticWolf => 0,
         Moose => 250,
-        BaldEagle => 400,
+        BaldEagle or SnowyOwl => 400,
+        CaveHyena => 500,
         SnowLeopard => 600,
-        Mammoth => 1000,
+        CaveLion => 900,
+        Mammoth or WoollyRhino => 1000,
+        Smilodon => 1200,
         PolarBear => 1500,
         _ => 0,
     };

@@ -19,10 +19,10 @@ public partial class Player
     public bool IsDead => Health <= 0f;
 
     /// <summary>
-    /// True while the animal is one wolves prey on: anything but a fellow wolf, or a snow leopard or polar bear, which
-    /// they fear.
+    /// True while the animal is one wolves (or hyenas) prey on: anything but a fellow pack hunter, or a snow leopard, polar
+    /// bear or big cat, which they fear.
     /// </summary>
-    public bool IsWolfPrey => !IsDead && Animal is not (ArcticWolf or SnowLeopard or PolarBear);
+    public bool IsWolfPrey => !IsDead && Animal is not (ArcticWolf or CaveHyena or SnowLeopard) && !Wildlife.IsBigHunter(Animal);
 
     /// <summary>
     /// Whether a wolf standing at <paramref name="from"/> can get its teeth into the animal: not when it's flying overhead
@@ -51,13 +51,12 @@ public partial class Player
             family.Attack(by);
     }
 
-    /// <summary>Takes <paramref name="damage"/> off the animal's health, e.g. from a bite or a bad fall; a mammoth takes far less.</summary>
+    /// <summary>Takes <paramref name="damage"/> off the animal's health, e.g. from a bite or a bad fall; a mammoth or rhino takes far less.</summary>
     private void Hurt(float damage)
     {
         if (IsDead)
             return;
-        if (Animal is Mammoth)
-            damage /= Mammoth.Toughness;
+        damage /= Wildlife.ToughnessOf(Animal);
         Health = Mathf.Max(0f, Health - damage);
         _sinceBitten = 0f;
         if (IsDead)
@@ -114,9 +113,9 @@ public partial class Player
         StopHunting();
         _courtship = 0f;
         _mode = Mode.Ground;
-        Animal.IsFlying = Animal.IsClimbing = Animal.IsDiving = false;
-        // Its body floats back up to the surface (see LieDead), level again.
-        Animal.Rotation = new Vector3(0, Animal.Rotation.Y, 0);
+        Animal.IsFlying = Animal.IsClimbing = false;
+        // A drowned animal floats back up to the surface.
+        StopDiving();
         _feeding = Feeding.None;
         _grassTarget = -1;
         Posture = Posture.Lying;
@@ -146,22 +145,24 @@ public partial class Player
     }
 
     /// <summary>
-    /// Starts life again as a grown animal of the kind at <paramref name="index"/>, at the start, hungry, thirsty and
-    /// with full health.
+    /// Starts life again as a newborn of the animal at <paramref name="index"/>, a male or female as
+    /// <paramref name="sex"/> says, at the start, hungry, thirsty and with a whole life ahead of it.
     /// </summary>
-    public void Reborn(int index)
+    public void Reborn(int index, Sex sex)
     {
+        BecomeSex(sex);
         Animal.Dead = 0f;
         Animal.Visible = false;
         if (_herds.TryGetValue(Animal, out var oldHerd))
             oldHerd.Visible = false;
 
+        Age = 0f;
         Health = 100f;
         _sinceBitten = 100f;
         Hunger = 75f;
         Thirst = 60f;
         Stamina = 100f;
-        Air = 100f;
+        Breath = 100f;
         IsExhausted = false;
         BecomeAnimal(index);
         Respawn();

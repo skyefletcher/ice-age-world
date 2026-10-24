@@ -66,6 +66,13 @@ public partial class ArcticHare : Animal
     // A small mouth must gape wide to show at all.
     protected override float JawGape => 0.55f;
 
+    // A hare nibbles fast, several little bites a second, its head bobbing as it goes.
+    protected override FeedingStyle FeedingStyleFor(Food food) => food switch
+    {
+        Food.Water => Lapping with { Laps = 4.5f },
+        _ => new() { Laps = 5f, Gape = 0.5f, Tug = 0.05f },
+    };
+
     public override void _Ready() => Build();
 
     public override void Animate(float speed, float stride, float eat, float dt)

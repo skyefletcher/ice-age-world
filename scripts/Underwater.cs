@@ -4,11 +4,10 @@ using Godot;
 namespace IceAgeWorld;
 
 /// <summary>
-/// The world under the lakes, for the sea otter to dive into. The ocean is the otters' sea: a forest of golden-brown
-/// kelp rises from its bed towards the light, as off the coasts where sea otters live today, with boulders strewn
-/// through it. The small lakes have beds of green waterweed instead. Schools of arctic char, the fish of cold, deep
-/// ice-age lakes, cruise about and dart away from a diver. On the bed lie the otter's food: green sea urchins, the
-/// spiny kind of the cold northern seas, and clams, which it carries up to eat floating on its back.
+/// The world under the small lakes, for a diver to swim down into (the ocean has its own, see <see cref="Seabed"/>).
+/// Their beds are green with waterweed, with the odd boulder dropped by the glaciers. Schools of arctic char, the fish
+/// of cold, deep ice-age lakes, cruise about and dart away from a diver. On the bed lie the otter's food: green sea
+/// urchins, the spiny kind of the cold northern seas, and clams, which it carries up to eat floating on its back.
 /// </summary>
 public partial class Underwater : Node3D
 {
@@ -65,19 +64,16 @@ public partial class Underwater : Node3D
         _rng = new RandomNumberGenerator { Seed = (ulong)terrain.Seed + 20 };
         var patches = new FastNoiseLite { Seed = terrain.Seed + 20, NoiseType = FastNoiseLite.NoiseTypeEnum.SimplexSmooth, Frequency = 0.03f };
 
+        // The ocean has a world of its own under it, its reefs and kelp forests (see Seabed).
         foreach (var lake in terrain.Lakes)
         {
-            // Only the ocean, with its depth and room, is the otters' sea with a kelp forest.
-            bool sea = lake.Radius > 100f;
-            if (sea)
-                Plant(lake, patches, 3500, minDepth: 3f, reach: (0.6f, 0.9f), KelpMesh(), sway: 1.2f);
-            else
-                Plant(lake, patches, 90, minDepth: 1f, reach: (0.25f, 0.55f), WeedMesh(), sway: 0.25f);
-            Boulders(lake, sea ? 260 : 6);
-            for (int i = 0; i < (sea ? 40 : 1); i++)
-                AddShellfishBed(lake, sea ? 8 : 6);
-            for (int i = 0; i < (sea ? 30 : 2); i++)
-                AddSchool(lake, sea ? 14 : 7);
+            if (lake == terrain.Ocean)
+                continue;
+            Plant(lake, patches, 90, minDepth: 1f, reach: (0.25f, 0.55f), WeedMesh(), sway: 0.25f);
+            Boulders(lake, 6);
+            AddShellfishBed(lake, 6);
+            for (int i = 0; i < 2; i++)
+                AddSchool(lake, 7);
         }
     }
 
@@ -186,8 +182,8 @@ public partial class Underwater : Node3D
     }
 
     /// <summary>
-    /// Plants a forest of kelp or waterweed in patches over the lake bed, where it is deep enough, each plant reaching
-    /// a share (<paramref name="reach"/>) of the way up to the surface, as kelp grows up towards the light.
+    /// Plants waterweed in patches over the lake bed, where it is deep enough, each plant reaching a share
+    /// (<paramref name="reach"/>) of the way up to the surface, as it grows up towards the light.
     /// </summary>
     private void Plant(Lake lake, FastNoiseLite patches, int count, float minDepth, (float Low, float High) reach, ArrayMesh mesh, float sway)
     {
@@ -277,23 +273,13 @@ public partial class Underwater : Node3D
         _schools.Add(school);
     }
 
-    /// <summary>
-    /// A random spot on the bed of a lake, within its water line. The ocean is centred on the corner of the world, so a
-    /// spot past the world's edge is folded back across it, which spreads them evenly over the quarter inside.
-    /// </summary>
+    /// <summary>A random spot on the bed of a lake, within its water line.</summary>
     private Vector3 SpotOnBed(Lake lake)
     {
         float r = lake.Radius * 0.95f * Mathf.Sqrt(_rng.Randf());
         float a = _rng.Randf() * Mathf.Tau;
-        float x = Fold(lake.Centre.X + Mathf.Cos(a) * r), z = Fold(lake.Centre.Y + Mathf.Sin(a) * r);
+        float x = lake.Centre.X + Mathf.Cos(a) * r, z = lake.Centre.Y + Mathf.Sin(a) * r;
         return new Vector3(x, _terrain.GetHeight(x, z), z);
-    }
-
-    /// <summary>A coordinate past the edge of the world mirrored back inside it.</summary>
-    private float Fold(float v)
-    {
-        float edge = _terrain.HalfSize;
-        return v > edge ? 2f * edge - v : v < -edge ? -2f * edge - v : v;
     }
 
     /// <summary>A random spot partway between the bed and the surface, where fish cruise.</summary>
@@ -308,28 +294,17 @@ public partial class Underwater : Node3D
         return bed with { Y = Mathf.Lerp(bed.Y + 1f, lake.Surface - 1f, _rng.RandfRange(0.2f, 0.8f)) };
     }
 
-    /// <summary>
-    /// The point pulled back inside the lake if it has strayed past the water line, or, in the ocean, into the
-    /// mountains round the edge of the world.
-    /// </summary>
-    private Vector3 InLake(Lake lake, Vector3 point)
+    /// <summary>The point pulled back inside the lake if it has strayed past the water line.</summary>
+    private static Vector3 InLake(Lake lake, Vector3 point)
     {
         var flat = new Vector2(point.X, point.Z) - lake.Centre;
         float limit = lake.Radius * 0.9f;
         if (flat.Length() > limit)
             flat = flat.Normalized() * limit;
-        float inside = _terrain.HalfSize - Terrain.MountainWidth;
-        return new Vector3(Mathf.Clamp(lake.Centre.X + flat.X, -inside, inside), point.Y, Mathf.Clamp(lake.Centre.Y + flat.Y, -inside, inside));
+        return new Vector3(lake.Centre.X + flat.X, point.Y, lake.Centre.Y + flat.Y);
     }
 
     // ---- Meshes. Plants are built one unit tall and stretched to height, so the shader knows how far up a vertex is.
-
-    /// <summary>
-    /// Giant kelp: a thin stalk with long, wavy golden-brown blades on short stems all the way up, each buoyed by a gas
-    /// bladder at its base, so they stream out to the side and up.
-    /// </summary>
-    private static ArrayMesh KelpMesh() => PlantMesh(blades: 22, bladeLength: 1.1f, bladeWidth: 0.35f,
-        stalk: new Color(0.26f, 0.2f, 0.06f), tip: new Color(0.55f, 0.44f, 0.12f), stalkWidth: 0.06f);
 
     /// <summary>Waterweed: a bushy stem of short green leaves, like the pondweeds of cold lakes.</summary>
     private static ArrayMesh WeedMesh() => PlantMesh(blades: 20, bladeLength: 0.25f, bladeWidth: 0.1f,

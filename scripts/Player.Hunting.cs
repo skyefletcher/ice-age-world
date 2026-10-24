@@ -239,8 +239,8 @@ public partial class Player
     private void HoldKill()
     {
         // In flight a bird holds what it carries in its talons, legs reaching down under it.
-        if (Animal is BaldEagle eagle)
-            eagle.Clutching = Animal.IsFlying && (_carrying is not null || _lifting is not null);
+        if (Animal is Bird bird)
+            bird.Clutching = Animal.IsFlying && (_carrying is not null || _lifting is not null);
         if (_carrying is null || Wildlife is null)
             return;
         var grip = Animal.IsFlying

@@ -104,6 +104,12 @@ public partial class SnowLeopard : Animal
     public override string DisplayName => "Snow leopard";
     public override string YoungName => "Snow leopard cub";
 
+    // A female snow leopard weighs about a third less than a male.
+    protected override float FemaleSize => 0.9f;
+
+    // A supple cat that can turn its head right back along its flank to groom.
+    protected override float HeadTurn => 1.5f;
+
     public override AnimalStats Stats { get; } = new()
     {
         Scores = new() { JumpHeight = 10, JumpLength = 10, LandSpeed = 9, WaterSpeed = 3, Agility = 10, Stamina = 7 },
@@ -121,6 +127,15 @@ public partial class SnowLeopard : Animal
 
     // A cat drops its jaw wide to get its side teeth into meat.
     protected override float JawGape => 0.6f;
+
+    // Like every cat, a snow leopard cannot chew: it turns its head onto its side to slice meat off with its
+    // scissor-like cheek teeth, pulling up as it shears, and keeps to one side for a while before changing. It laps
+    // water fast with its tongue.
+    protected override FeedingStyle FeedingStyleFor(Food food) => food switch
+    {
+        Food.Water => Lapping with { Laps = 4f },
+        _ => new() { BiteMin = 1.1f, BiteMax = 2f, BiteSeconds = 0.4f, Held = 0.6f, Tug = 0.25f, Tilt = 0.45f, SwapSide = 0.3f },
+    };
 
     public override void _Ready()
     {

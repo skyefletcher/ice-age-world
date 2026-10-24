@@ -59,7 +59,7 @@ public partial class Player
             _courtship = 0f;
             CourtshipPrompt = family.HasMate ? "A snow leopard is fighting your mate to the death!"
                 : Wildlife.KillingCubs ? "The new snow leopard is going after your cubs!"
-                : "Two snow leopards are fighting over you!";
+                : IsGrownUp ? "Two snow leopards are fighting over you!" : null;
             return;
         }
 
@@ -70,9 +70,18 @@ public partial class Player
             return;
         }
 
-        if (Wildlife.MateNear(GlobalPosition, CourtshipRange) is not { } mate)
+        // Only one of the other sex will do.
+        if (Wildlife.MateNear(GlobalPosition, CourtshipRange, Sex) is not { } mate)
         {
             _courtship = 0f;
+            return;
+        }
+
+        // Snow leopards only breed once they're grown, at two or three years old; a cub has to grow up first.
+        if (!IsGrownUp)
+        {
+            _courtship = 0f;
+            CourtshipPrompt = "Grow up first to have cubs: keep eating and drinking";
             return;
         }
 

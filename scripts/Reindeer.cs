@@ -44,6 +44,12 @@ public partial class Reindeer : Quadruped
     public override string DisplayName => "Reindeer";
     public override string YoungName => "Reindeer calf";
 
+    // A reindeer cow is smaller than a bull, and the only female deer to grow antlers, though smaller, simpler ones.
+    protected override float FemaleSize => 0.88f;
+
+    // A reindeer can swing its head round to its shoulder, but no further, as a deer can't look straight behind it.
+    protected override float HeadTurn => 1.1f;
+
     public override AnimalStats Stats { get; } = new()
     {
         // Reindeer travel farther than any other land animal on their migrations, swim rivers and lakes with ease (their
@@ -75,6 +81,14 @@ public partial class Reindeer : Quadruped
     protected override float DeadRoll => BodyCentre;
     protected override float CrouchDrop => 0.2f;
     protected override float HeadDown => -1.75f;
+
+    // A reindeer crops grass with its lower teeth against a hard pad above, tearing each mouthful free with a little
+    // upward jerk, then chews it sideways, as cud chewers do, stepping its muzzle along the turf. It sucks water up.
+    protected override FeedingStyle FeedingStyleFor(Food food) => food switch
+    {
+        Food.Water => Sipping,
+        _ => new() { BiteMin = 1f, BiteMax = 1.8f, BiteSeconds = 0.4f, Gape = 0.7f, Held = 0f, Tug = 0.12f, Grind = 0.08f, Sweep = 0.12f, SweepSeconds = 5f },
+    };
     protected override float LieNeck => -0.9f;
     protected override float LieHead => 0.5f;
 
@@ -221,6 +235,8 @@ public partial class Reindeer : Quadruped
     {
         var root = Pivot(Head, "Antler", new Vector3(side * 0.045f, 0.085f, 0.02f));
         root.Scale = Vector3.One * (AntlerScale / HeadScale);
+        // A cow's antlers are a little over half the size of a bull's.
+        ForMales(root, 0.55f);
         Attach(root, "Burr", Ellipsoid(new Vector3(0.05f, 0.02f, 0.05f), 10, 6, antler));
 
         // The main beam: a cubic curve back, out and up, and forward at the top, spreading wide apart.

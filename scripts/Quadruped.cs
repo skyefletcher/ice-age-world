@@ -4,7 +4,7 @@ using Godot;
 namespace IceAgeWorld;
 
 /// <summary>
-/// Shared skeleton and movement for the big four-legged animals built from it (reindeer, moose and polar bear): a
+/// Shared skeleton and movement for the big four-legged animals built from it (reindeer, moose, polar bear and the big cats): a
 /// frame carrying the body, four two-segment legs with feet, a neck and head, and a tail. It walks with diagonal
 /// pairs of legs, lengthening into a bounding gallop at speed; lowers its head and bends its forelegs to drink or
 /// graze; sits and lies down; and goes limp on its side in death. Each animal supplies its own proportions and builds
@@ -50,6 +50,12 @@ public abstract partial class Quadruped : Animal
     /// <summary>How the neck and head are held lying down: deer lay their head forward along the ground to sleep.</summary>
     protected virtual float LieNeck => 0.1f;
     protected virtual float LieHead => -0.1f;
+
+    /// <summary>
+    /// True to fur the inner face of the shoulder and thigh muscle too, for an animal whose thighs stand clear of the
+    /// rump so that the inside of the far one shows from behind, as a big cat's do.
+    /// </summary>
+    protected virtual bool MuscleFurAllRound => false;
 
     protected Node3D Frame = null!;
     protected Node3D Neck = null!;
@@ -219,7 +225,10 @@ public abstract partial class Quadruped : Animal
             var bulk = isFront ? muscle : muscle * new Vector3(1.1f, 1.1f, 1.25f);
             var bulkAt = new Vector3(0, -bulk.Y * 0.2f, isFront ? 0f : bulk.Z * 0.15f);
             Attach(UpperLegs[i], "Muscle", Ellipsoid(bulk, 14, 10, muscleCoat, muscleColouring), bulkAt);
-            Attach(UpperLegs[i], "MuscleFur", Strands(rng, OnShape(rng, u => u * bulk + bulkAt, furPerLeg, u => u.X * side > -0.2f),
+            // The inner face is usually hidden against the body; furring it as well costs more strands for the same density.
+            int muscleFur = MuscleFurAllRound ? furPerLeg * 3 / 2 : furPerLeg;
+            Attach(UpperLegs[i], "MuscleFur", Strands(rng, OnShape(rng, u => u * bulk + bulkAt, muscleFur,
+                    u => MuscleFurAllRound || u.X * side > -0.2f),
                 new Vector3(0, -0.2f, 0.8f), furLength.Min, furLength.Max, furRoot, furTip, Hair, width: width, colouring: muscleColouring));
 
             LowerLegs[i] = Pivot(UpperLegs[i], "Lower", knee);

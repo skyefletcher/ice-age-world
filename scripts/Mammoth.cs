@@ -58,6 +58,12 @@ public partial class Mammoth : Animal
     public override string DisplayName => "Woolly mammoth";
     public override string YoungName => "Woolly mammoth calf";
 
+    // A cow mammoth stood about 2.8 m at the shoulder to a bull's 3.4 m, and grew far smaller, straighter tusks.
+    protected override float FemaleSize => 0.85f;
+
+    // Its huge head, tusks and trunk sit on a short, thick neck, so it can hardly turn to look round at all.
+    protected override float HeadTurn => 0.5f;
+
     public override AnimalStats Stats { get; } = new()
     {
         Scores = new() { JumpHeight = 1, JumpLength = 1, LandSpeed = 6, WaterSpeed = 4, Agility = 3, Stamina = 9 },
@@ -78,6 +84,15 @@ public partial class Mammoth : Animal
 
     // The lip hides under the trunk, so it drops well clear to be seen.
     protected override float JawGape => 0.5f;
+
+    // A mammoth gathers food with its trunk (see Animate): the mouth only opens when the trunk brings it a bundle of
+    // grass, which the huge molars grind slowly. Drinking, the trunk sucks water up and pours it in, the head tipping
+    // back to let it run down.
+    protected override FeedingStyle FeedingStyleFor(Food food) => food switch
+    {
+        Food.Water => new() { BiteMin = 4.5f, BiteMax = 5.5f, BiteSeconds = 0.6f, Gape = 0.5f, Held = 0f, Gulp = 0.3f },
+        _ => new() { BiteMin = 3f, BiteMax = 4f, BiteSeconds = 0.5f, Gape = 0.6f, Held = 0f, Grind = 0.05f, GrindRate = 1f },
+    };
 
     public override void _Ready() => Build();
 
@@ -117,14 +132,26 @@ public partial class Mammoth : Animal
             Pose(0f, 0f, Limp(0.3f, 0.45f)), 0);
 
         // The trunk swings side to side, lazily when idle and harder in step, each segment lagging the one
-        // above like a chain of pendulums. While grazing it curls back under the head towards the mouth.
-        // Lying, it flops down onto the ground, still stirring until it dies.
+        // above like a chain of pendulums. Lying, it flops down onto the ground, still stirring until it dies.
+        // Feeding, it works like a hand: from the mouth it uncurls and reaches down, the tip wraps round a tuft of
+        // grass and tears it up (or sucks up a trunkful of water), and it curls back up under the head to put it in
+        // the mouth, which bites as it arrives (see FeedingStyleFor).
+        float feeding = Mathf.SmoothStep(0.4f, 0.9f, eat) * Alive;
+        float cycle = FeedCycle;
+        float gather = cycle < 0.15f ? 1f
+            : cycle < 0.45f ? 1f - Mathf.SmoothStep(0f, 1f, (cycle - 0.15f) / 0.3f)
+            : cycle < 0.65f ? 0f
+            : Mathf.SmoothStep(0f, 1f, (cycle - 0.65f) / 0.35f);
+        float grip = cycle is > 0.45f and < 0.75f ? Mathf.Sin((cycle - 0.45f) / 0.3f * Mathf.Pi) : 0f;
         for (int i = 0; i < _trunk.Length; i++)
         {
             float lag = i * 0.6f;
             float sway = (Mathf.Sin(_time * 1.3f - lag) * 0.1f + Mathf.Sin(_walkCycle - 0.3f - lag) * 0.22f * stride) * Alive;
             float hang = i == 0 ? 0.45f : -0.12f;
-            float curl = eat * (i == 0 ? 0.3f : -0.5f);
+            float curl = i == 0
+                ? eat * 0.3f - feeding * 0.25f * gather
+                : -eat * 0.15f - feeding * 0.7f * gather - (i == _trunk.Length - 1 ? feeding * 0.8f * grip : 0f);
+            sway *= 1f - feeding * 0.7f;
             _trunk[i].Rotation = new Vector3(hang + curl, 0, sway + Pose(0f, 0f, i == 0 ? -1.1f : -0.15f));
         }
 
@@ -178,7 +205,9 @@ public partial class Mammoth : Animal
         {
             AsEye(Attach(head, "Eye", new SphereMesh { Radius = 0.07f, Height = 0.14f, Material = dark },
                 new Vector3(side * 0.5f, 0.12f, -0.4f)));
-            Attach(head, "Tusk", Tusk(side, ivory));
+            // A cow's tusks were far smaller than a bull's, so they hinge from the root to shrink back into the jaw.
+            var root = TuskRoot(side);
+            Attach(ForMales(Pivot(head, "TuskRoot", root), 0.55f), "Tusk", Tusk(side, ivory), -root);
         }
 
         // A pointed lower lip tucked under the root of the trunk, hinged at the back of the mouth so it drops open
@@ -267,10 +296,13 @@ public partial class Mammoth : Animal
     private ArrayMesh Hair(RandomNumberGenerator rng, List<(Vector3 Root, Vector3 Normal)> roots, Vector3 drift, float minLength, float maxLength) =>
         Strands(rng, roots, drift, minLength, maxLength, HairRoot, HairTip, _hair);
 
+    /// <summary>Where a tusk leaves the head, below and beside the root of the trunk.</summary>
+    private static Vector3 TuskRoot(float side) => new(side * 0.3f, -0.45f, -0.45f);
+
     private static ArrayMesh Tusk(float side, Material ivory)
     {
         // A cubic curve that sweeps out, down and forward from the jaw, then up and inward at the tip.
-        Vector3 p0 = new(side * 0.3f, -0.45f, -0.45f);
+        Vector3 p0 = TuskRoot(side);
         Vector3 p1 = new(side * 0.65f, -1.4f, -1f);
         Vector3 p2 = new(side * 0.6f, -1.5f, -2.2f);
         Vector3 p3 = new(side * 0.2f, -0.7f, -2.55f);

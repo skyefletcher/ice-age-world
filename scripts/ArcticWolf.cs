@@ -88,7 +88,21 @@ public partial class ArcticWolf : Animal
     private float _time;
 
     public override string DisplayName => "Arctic wolf";
+
+    // A wolf bolts its meat: it seizes a mouthful, braces and yanks back, shaking its head to rip it loose, and gulps it
+    // down barely chewed, now one side of the jaw and now the other. It laps water like a dog.
+    protected override FeedingStyle FeedingStyleFor(Food food) => food switch
+    {
+        Food.Water => Lapping with { Laps = 3f },
+        _ => new() { BiteMin = 0.8f, BiteMax = 1.5f, BiteSeconds = 0.3f, Held = 0.5f, Tug = 0.4f, Shake = 0.25f, Tilt = 0.15f, SwapSide = 0.5f },
+    };
     public override string YoungName => "Arctic wolf pup";
+
+    // A she-wolf weighs about a fifth less than a male.
+    protected override float FemaleSize => 0.93f;
+
+    // A wolf can look back over its shoulder, but no further.
+    protected override float HeadTurn => 1.2f;
 
     public override AnimalStats Stats { get; } = new()
     {

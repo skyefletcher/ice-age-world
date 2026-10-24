@@ -53,12 +53,20 @@ public partial class SeaOtter : Animal
     public override string DisplayName => "Sea otter";
     public override string YoungName => "Sea otter pup";
 
+    // A female sea otter weighs about a third less than a male.
+    protected override float FemaleSize => 0.9f;
+
+    // The otter's long, supple body lets it turn its head right round to its back, to groom its fur.
+    protected override float HeadTurn => 1.6f;
+
     public override AnimalStats Stats { get; } = new()
     {
         Scores = new() { JumpHeight = 3, JumpLength = 3, LandSpeed = 5, WaterSpeed = 9, Agility = 9, Stamina = 6 },
         // Sea otters dive to the bottom for their food, sea urchins, clams and crabs, and bring it up to eat.
         Abilities = Ability.Dive,
         FloatDepth = SpineHeight,
+        // Sea otters dive for a minute or so at a time to forage on the bottom, and can manage four or five.
+        BreathSeconds = 75f,
         WadeDepth = 0.12f,
         MouthDistance = 0.5f,
         EatReach = 0.4f,

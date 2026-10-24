@@ -21,6 +21,7 @@ public static class InputSetup
     public const string Sit = "sit";
     public const string LieDown = "lie_down";
     public const string SwitchAnimal = "switch_animal";
+    public const string SwitchSex = "switch_sex";
     public const string Map = "map";
     public const string Shop = "shop";
 
@@ -42,6 +43,7 @@ public static class InputSetup
         Add(Sit, Key.C);
         Add(LieDown, Key.X);
         Add(SwitchAnimal, Key.Tab);
+        Add(SwitchSex, Key.V);
         Add(Map, Key.M);
         // The animal shop, to buy animals with coins and play as them.
         Add(Shop, Key.B);

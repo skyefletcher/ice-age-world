@@ -173,6 +173,8 @@ public partial class Herd : Node3D
             body.AddChild(animal);
             AddChild(body);
             Fit(animal);
+            // Of both sexes too, so a herd of moose is a mix of antlered bulls and bare-headed cows.
+            animal.Sex = i % 2 == 0 ? Sex.Female : Sex.Male;
 
             // Real herds and packs are of mixed ages and sizes; the last of a herd is a calf.
             float size = _isHerd && i == Count - 1 ? 0.6f : 1f - 0.06f * (i % 3);
@@ -216,7 +218,15 @@ public partial class Herd : Node3D
     {
         Recruit(1f, at);
         _members[^1].IsMate = true;
+        MateWith(Leader.Sex);
         Recruit();
+    }
+
+    /// <summary>Makes the family's mate, if it has one, the other sex from a leader of <paramref name="sex"/>.</summary>
+    public void MateWith(Sex sex)
+    {
+        foreach (var member in _members.Where(m => m.IsMate))
+            member.Animal.Sex = sex == Sex.Male ? Sex.Female : Sex.Male;
     }
 
     /// <summary>
@@ -259,6 +269,7 @@ public partial class Herd : Node3D
         body.AddChild(animal);
         AddChild(body);
         body.Scale = Vector3.One * size;
+        animal.Sex = GD.Randi() % 2 == 0 ? Sex.Female : Sex.Male;
         if (_members.Count == 0)
             Fit(animal);
 

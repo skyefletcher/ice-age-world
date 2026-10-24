@@ -63,7 +63,7 @@ public partial class Player
     }
 
     /// <summary>Where a flying bird's talons close on what it carries: between its feet, or its middle for any other flier.</summary>
-    private Vector3 Talons => Animal is BaldEagle eagle ? eagle.Talons : GlobalPosition;
+    private Vector3 Talons => Animal is Bird bird ? bird.Talons : GlobalPosition;
 
     /// <summary>Lets go of the prey in the talons, if any: it falls from wherever the bird is.</summary>
     private void DropLifted()

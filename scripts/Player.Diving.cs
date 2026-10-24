@@ -3,133 +3,125 @@ using Godot;
 namespace IceAgeWorld;
 
 /// <summary>
-/// Diving, for animals that dive: the sea otter. Swimming at the surface, Shift takes it under. Down there Shift swims
-/// deeper and Space swims up, and with neither held it drifts slowly up, buoyed by the air trapped in its thick fur.
-/// It holds its breath while it's under. Once the air runs out it starts to drown, so it has to come up for more. On
-/// the bed it finds sea urchins and clams. It picks one up with E and carries it to the surface, where it eats it
-/// floating on its back, as sea otters do, using the belly as a table.
+/// Diving, for animals that dive (<see cref="Ability.Dive"/>: the sea otter and polar bear). From the surface, holding
+/// Shift takes the animal down under the water, Space brings it up, and let be it drifts back up, buoyed by the air in
+/// its fur and lungs. It holds its breath for as long as its kind can (<see cref="AnimalStats.BreathSeconds"/>), and
+/// once that runs out it starts to drown, so it has to come up for more. In the ocean it swims through the kelp and over
+/// the reefs (see <see cref="Seabed"/>), and in the lakes over the waterweed (see <see cref="Underwater"/>). On the bed
+/// it finds sea urchins and clams: it picks one up with E and carries it to the surface, where it eats it floating on
+/// its back, as sea otters do, using the belly as a table. A fish close enough it snaps up there and then.
 /// </summary>
 public partial class Player
 {
-    /// <summary>Seconds the animal can stay under on one breath: sea otters usually dive for about a minute.</summary>
-    [Export] public float BreathSeconds { get; set; } = 60f;
+    /// <summary>Health lost each second once the breath has run out.</summary>
+    [Export] public float DrownDamagePerSecond { get; set; } = 8f;
 
-    /// <summary>Seconds at the surface to get a full breath back.</summary>
-    private const float BreatheInSeconds = 3f;
+    /// <summary>Seconds at the surface to get a full breath back after using it all up.</summary>
+    private const float BreathRecoverySeconds = 4f;
 
-    /// <summary>Health lost each second once out of air.</summary>
-    private const float DrownDamage = 12f;
+    /// <summary>How fast a diver drifts up when it isn't swimming either way, buoyed by its fur and lungs.</summary>
+    private const float BuoyantRise = 0.6f;
 
-    /// <summary>How fast the animal drifts up when not swimming down, in metres a second.</summary>
-    private const float Buoyancy = 0.8f;
+    /// <summary>How steeply a diver's body tips to swim down or up, at most.</summary>
+    private const float DivePitch = 0.9f;
 
-    /// <summary>How close to the mouth an urchin or clam must be to pick it up.</summary>
-    private const float ForageReach = 0.9f;
+    /// <summary>The ocean floor, with its urchins, clams and schools of cod.</summary>
+    public Seabed? Seabed { get; set; }
 
-    /// <summary>How much air is left in the lungs, out of 100.</summary>
-    public float Air { get; private set; } = 100f;
-
-    public bool IsDiving => _mode == Mode.Diving;
-
-    /// <summary>The world under the lakes, with its urchins and clams.</summary>
+    /// <summary>The beds of the small lakes, with their urchins and clams.</summary>
     public Underwater? Underwater { get; set; }
+
+    /// <summary>True while the animal is under the water, rather than floating on it.</summary>
+    public bool IsDiving { get; private set; }
+
+    /// <summary>Breath held, from 100 (a full lungful) down to 0 (drowning). Only used up underwater.</summary>
+    public float Breath { get; private set; } = 100f;
 
     /// <summary>The urchin or clam the animal is carrying in its paws, and the model of it there.</summary>
     private Underwater.ShellKind? _holding;
     private Node3D? _heldModel;
 
+    private bool CanDive => Stats.Can(Ability.Dive) && Stats.BreathSeconds > 0f;
+
     /// <summary>
-    /// Swimming at the surface: offers to dive, and goes under when Shift is held. Returns true once diving. Also eats
-    /// anything carried up from the bed.
+    /// Swimming at the surface: eats anything carried up from the bed, offers to dive where the water is deep enough to
+    /// dive into, and says whether to go under now, with Shift held.
     /// </summary>
-    private bool TryDive()
+    private bool StartsDive(float surface)
     {
         EatHeld();
-        if (!Stats.Can(Ability.Dive) || IsFeeding)
+        if (!CanDive || IsFeeding || Terrain is null)
+            return false;
+        float bottom = Terrain.GetHeight(GlobalPosition.X, GlobalPosition.Z);
+        if (surface - bottom <= Stats.BodyHeight * 2f + Stats.FloatDepth)
             return false;
         ActionPrompt ??= "Shift to dive";
-        if (!Input.IsActionPressed(InputSetup.Sprint) || Air < 10f)
-            return false;
-        _mode = Mode.Diving;
-        Animal.IsDiving = true;
-        return true;
+        return Input.IsActionPressed(InputSetup.Sprint) && Breath >= 10f;
     }
 
-    /// <summary>Swims about under the water, steered by the camera, Shift to go deeper and Space to go up.</summary>
-    private void Dive(float dt, Vector3 direction)
+    /// <summary>Breath comes back while the animal's head is above water.</summary>
+    private void Breathe(float dt) => Breath = Mathf.MoveToward(Breath, 100f, 100f / BreathRecoverySeconds * dt);
+
+    /// <summary>Comes back to the surface, or stops diving for any other reason, levelling out the body.</summary>
+    private void StopDiving()
     {
-        float? surface = Water?.SurfaceAt(GlobalPosition);
-        if (surface is null)
-        {
-            EndDive();
-            return;
-        }
+        if (IsDiving)
+            Velocity = Velocity with { Y = 0f };
+        IsDiving = false;
+        Animal.IsDiving = false;
+        Animal.Rotation = new Vector3(0f, Animal.Rotation.Y, 0f);
+    }
+
+    /// <summary>One step of swimming underwater. Called instead of walking for as long as the animal is down.</summary>
+    private void Dive(float dt, Vector3 direction, float? surface)
+    {
+        IsDiving = true;
+        IsSwimming = true;
+        Animal.IsSwimming = Animal.IsDiving = true;
 
         bool down = Input.IsActionPressed(InputSetup.Sprint);
         bool up = Input.IsActionPressed(InputSetup.Jump);
         float speed = Stats.SwimSpeed * (IsExhausted ? 0.6f : 1f);
-        float climb = down ? -speed * 0.8f : up ? speed * 0.8f : Buoyancy;
+        float rise = down ? -speed * 0.7f : up ? speed * 0.7f : BuoyantRise;
 
         var velocity = Velocity;
-        var horizontal = new Vector3(velocity.X, 0, velocity.Z).Lerp(direction * speed, Mathf.Min(1f, Stats.Acceleration * 0.5f * dt));
-        velocity = horizontal with { Y = Mathf.MoveToward(velocity.Y, climb, Stats.Acceleration * dt) };
+        var horizontal = new Vector3(velocity.X, 0f, velocity.Z).Lerp(direction * speed, Mathf.Min(1f, Stats.Acceleration * 0.5f * dt));
+        velocity = new Vector3(horizontal.X, Mathf.Lerp(velocity.Y, rise, Mathf.Min(1f, 3f * dt)), horizontal.Z);
         Velocity = velocity;
         MoveAndSlide();
 
-        // Back at the surface, it swims on top again, unless it's still heading down.
-        float top = surface.Value - Stats.FloatDepth;
-        if (GlobalPosition.Y >= top && !down)
+        // Back at floating height, the animal comes up for air, unless it is still being taken down.
+        if (surface is not { } top || (!down && GlobalPosition.Y >= top - Stats.FloatDepth))
         {
-            EndDive();
+            StopDiving();
             return;
         }
-        if (GlobalPosition.Y > top)
-            GlobalPosition = GlobalPosition with { Y = top };
 
-        IsSwimming = true;
+        // Holding its breath costs it, and once it has none left it drowns.
+        Breath = Mathf.MoveToward(Breath, 0f, 100f / Stats.BreathSeconds * dt);
+        if (Breath <= 0f)
+            Hurt(DrownDamagePerSecond * dt);
         UpdateNeeds(dt, exerting: true);
         UpdateStamina(dt, effort: Stats.SwimEffort);
+
         Forage();
 
-        // Turn to the way it swims, and tip nose-down to dive and nose-up to climb.
+        // Face the way it swims, tipping head down to dive and head up to rise, as an otter porpoises down through the kelp.
+        float pitch = Mathf.Clamp(velocity.Y / Mathf.Max(speed, 0.1f), -1f, 1f) * DivePitch;
         float yaw = direction != Vector3.Zero
             ? Mathf.LerpAngle(Animal.Rotation.Y, Yaw(direction), Stats.TurnSpeed * dt)
             : Animal.Rotation.Y;
-        // Drifting up on its own buoyancy it stays nearly level; only swimming up or down tips it right over.
-        float pitch = Mathf.Clamp(Mathf.Atan2(velocity.Y, Mathf.Max(horizontal.Length(), 2f)), -1.2f, 1.2f);
-        Animal.Rotation = new Vector3(Mathf.LerpAngle(Animal.Rotation.X, pitch, Mathf.Min(1f, 4f * dt)), yaw, 0);
-        Animal.IsSwimming = true;
-        AnimateAnimal(velocity.Length() + 2f, 1f, 0f, dt);
+        Animal.Rotation = new Vector3(Mathf.Lerp(Animal.Rotation.X, pitch, Mathf.Min(1f, 4f * dt)), yaw, 0f);
+
+        _headDip = Mathf.MoveToward(_headDip, 0f, dt / HeadLiftSeconds);
+        // As on the surface, a little extra keeps the paws paddling while it hangs in the water.
+        AnimateAnimal(velocity.Length() + 2f, 1f, _headDip, dt);
     }
 
-    /// <summary>Comes back up to swim at the surface, level again.</summary>
-    private void EndDive()
-    {
-        _mode = Mode.Ground;
-        Animal.IsDiving = false;
-        Animal.Rotation = new Vector3(0, Animal.Rotation.Y, 0);
-        Velocity = Velocity with { Y = 0f };
-    }
-
-    /// <summary>Uses up air while under the water and drowns once it's gone; breathes back in above it.</summary>
-    private void Breathe(float dt)
-    {
-        if (!IsDiving)
-        {
-            Air = Mathf.Min(100f, Air + 100f / BreatheInSeconds * dt);
-            return;
-        }
-        Air = Mathf.Max(0f, Air - 100f / BreathSeconds * dt);
-        if (Air > 0f)
-            return;
-        Health = Mathf.Max(0f, Health - DrownDamage * dt);
-        // Drowning stops it healing, as a bite does.
-        _sinceBitten = 0f;
-        if (IsDead)
-            Die();
-    }
-
-    /// <summary>On the bed: picks up an urchin or clam within reach with E.</summary>
+    /// <summary>
+    /// Offers to take whatever urchin, clam or fish is within reach of the mouth, in the ocean or a lake, when E is
+    /// pressed. A fish is eaten at once; shellfish is carried up to the surface to eat.
+    /// </summary>
     private void Forage()
     {
         if (_holding is { } held)
@@ -137,18 +129,38 @@ public partial class Player
             ActionPrompt = $"Swim up to eat the {Underwater.NameOf(held)}";
             return;
         }
-        if (Underwater?.ShellfishNear(Mouth, ForageReach) is not { } found)
+
+        var mouth = Mouth + Animal.GlobalBasis.Y.Normalized() * Stats.BodyHeight * 0.5f;
+        float reach = Stats.EatReach + 0.6f;
+        if (Seabed?.WithinReach(mouth, reach) is { } kind)
+        {
+            ActionPrompt = $"E or click to catch the {Seabed.NameOf(kind)}";
+            if (!Input.IsActionJustPressed(InputSetup.Eat) || Seabed.Take(mouth, reach) is not { } caught)
+                return;
+            if (caught == Seabed.Catch.Fish)
+                Hunger = Mathf.Min(100f, Hunger + Seabed.FishNourishment);
+            else
+                Hold(caught == Seabed.Catch.Urchin ? Underwater.ShellKind.Urchin : Underwater.ShellKind.Clam);
+            return;
+        }
+
+        if (Underwater?.ShellfishNear(mouth, reach) is not { } found)
             return;
         ActionPrompt = $"E or click to pick up the {found.Name}";
         if (!Input.IsActionJustPressed(InputSetup.Eat))
             return;
-
         Underwater.Take(found);
-        _holding = found.Kind;
+        Hold(found.Kind);
+    }
+
+    /// <summary>Takes an urchin or clam in the paws to carry up to the surface.</summary>
+    private void Hold(Underwater.ShellKind kind)
+    {
+        _holding = kind;
         // Clutched between the forepaws, as an otter carries food up from the bottom. It hangs off the left paw, halfway
         // across to the right one, which always moves with it, so the food goes wherever the paws do: tucked to the
         // chest swimming down, and held up over the belly, ready to eat, when the otter rolls over to float.
-        _heldModel = Underwater.Model(found.Kind);
+        _heldModel = Underwater.Model(kind);
         if (Animal.GetNodeOrNull<Node3D>("Frame/LegFrontLeft/Foot") is { } paw)
         {
             float between = -paw.GetParent<Node3D>().Position.X;
