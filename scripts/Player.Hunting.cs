@@ -92,7 +92,11 @@ public partial class Player
         }
 
         if (Wildlife.CarcassNear(Mouth, Stats.EatReach + 0.5f) is not { } carcass)
+        {
+            if (!upTree)
+                AttackThinAir();
             return;
+        }
 
         bool light = Wildlife.CanCarry(carcass, Stats.BodyRadius * Stats.BodyHeight * CarryStrength);
         string name = carcass.DisplayName.ToLower();
@@ -123,6 +127,11 @@ public partial class Player
         bool grip = Stats.Can(Ability.Grip);
         if (IsExhausted)
             return;
+        if (Animal is Bird && Input.IsActionJustPressed(InputSetup.Grip))
+        {
+            TalonAttack(prey);
+            return;
+        }
         if (grip && Input.IsActionJustPressed(InputSetup.Grip))
         {
             StartGrip(prey);
@@ -151,6 +160,30 @@ public partial class Player
         if (!Wildlife!.Bite(prey, BiteStrength * Stats.Strength * Size * Size, GlobalPosition)
             && _herds.TryGetValue(Animal, out var pack))
             pack.Attack(prey);
+    }
+
+    /// <summary>
+    /// With nothing in reach, attacking still does something: F springs forward and snaps the jaws, as a young hunter
+    /// practises or a cat bats at a hare that got away, and G leaps (a cat) or slashes with the talons (a bird). It
+    /// costs stamina all the same.
+    /// </summary>
+    private void AttackThinAir()
+    {
+        bool special = Input.IsActionJustPressed(InputSetup.Grip) && (Stats.Can(Ability.Grip) || Animal is Bird);
+        if (IsExhausted || (!special && !Input.IsActionJustPressed(InputSetup.Attack)))
+            return;
+        if (special && Animal is Bird)
+        {
+            TalonAttack(null);
+            return;
+        }
+
+        // A leap carries further than a snap of the jaws.
+        _lunge = Forward(Animal.Rotation.Y) * Stats.JumpBoost * (special ? 1f : 0.6f);
+        _pounce = PounceSeconds;
+        Stamina = Mathf.Max(0f, Stamina - PounceStamina);
+        if (Stamina <= 0f)
+            IsExhausted = true;
     }
 
     /// <summary>With a kill in its jaws, the hunter can eat from it where it stands, or put it down: up a tree it stays put there.</summary>
@@ -215,15 +248,20 @@ public partial class Player
         // The talons reach down below the body as the bird swings its feet forward to strike.
         var talons = GlobalPosition + Vector3.Down * TalonReach * 0.5f * Size;
         if (Wildlife.PreyNear(talons, TalonReach * Size) is not { } prey)
-            return;
-
-        // As on the ground, the strike itself isn't announced, but picking something up is: G lifts it alive.
-        bool liftable = CanLift(prey) && !IsExhausted;
-        if (liftable)
-            ActionPrompt = $"G to pick up the {prey.DisplayName.ToLower()}";
-        if (liftable && Input.IsActionJustPressed(InputSetup.Grip))
         {
-            StartLift(prey);
+            // With nothing below, the bird can still strike out with its talons.
+            if (Input.IsActionJustPressed(InputSetup.Attack) || Input.IsActionJustPressed(InputSetup.Grip))
+                TalonAttack(null);
+            return;
+        }
+
+        // As on the ground, the strike itself isn't announced, but picking something up is: F snatches it, and G lifts
+        // it alive, or slashes at it if it's too heavy.
+        if (CanLift(prey) && !IsExhausted)
+            ActionPrompt = $"G to pick up the {prey.DisplayName.ToLower()}";
+        if (Input.IsActionJustPressed(InputSetup.Grip))
+        {
+            TalonAttack(prey);
             return;
         }
         if (!Input.IsActionJustPressed(InputSetup.Attack))

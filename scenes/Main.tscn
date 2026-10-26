@@ -104,7 +104,7 @@ script = ExtResource("6_hud")
 [node name="Controls" type="Label" parent="Hud"]
 offset_left = 16.0
 offset_top = 12.0
-text = "WASD: move   Shift: run / dive   Space: jump / fly / leap / swim up   E: eat / drink / catch / pick up   F / click: attack / pick up / fight other players   G / right-click: leap and hold (snow leopard) / lift prey (eagle, owl)   Tab: switch animal   B: animal shop   M: map   Mouse: look   Wheel: zoom   Esc: free mouse   F11: fullscreen"
+text = "WASD: move   Shift: run / dive   Space: jump / fly / leap / swim up   E: eat / drink / catch / pick up   F / click: attack / pick up / fight other players   G / right-click: leap and hold (snow leopard) / lift or slash (eagle, owl)   Tab: switch animal   B: animal shop   M: map   Mouse: look   Wheel: zoom   Esc: free mouse   F11: fullscreen"
 
 [node name="ActionPrompt" type="Label" parent="Hud"]
 visible = false

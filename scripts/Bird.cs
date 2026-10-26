@@ -60,6 +60,19 @@ public abstract partial class Bird : Animal
     /// <summary>True while the bird carries something in its talons, so it holds its legs down under it in flight.</summary>
     public bool Clutching { get; set; }
 
+    /// <summary>1 as a talon slash starts, running down to 0 as it finishes.</summary>
+    private float _slash;
+
+    /// <summary>Seconds a talon slash takes, from throwing the feet forward through raking them back to recovering.</summary>
+    public const float SlashSeconds = 0.5f;
+
+    /// <summary>
+    /// Strikes with the talons: the bird throws its feet forward with the toes spread, rakes them back through its
+    /// target, clenching, and flares its wings to brake and hold itself up, as eagles and owls strike at prey too big to
+    /// carry, or fight. On the ground it springs up to do it.
+    /// </summary>
+    public void Slash() => _slash = 1f;
+
     /// <summary>Where the talons close, between the two feet: where anything the bird carries is held.</summary>
     public Vector3 Talons => (Feet[0].GlobalPosition + Feet[1].GlobalPosition) / 2f;
 
@@ -82,8 +95,18 @@ public abstract partial class Bird : Animal
         _airborne = Mathf.MoveToward(_airborne, IsFlying ? 1f : 0f, dt * 3f);
         float air = Mathf.SmoothStep(0f, 1f, _airborne);
 
-        // Spread the wings to fly, half-tuck them to dive, and fold them away on the ground.
-        _fold = Mathf.MoveToward(_fold, IsFlying ? Dive * 0.55f : 1f, dt * 3.5f);
+        // A slash throws the feet forward over its first third, then rakes them back through the target.
+        _slash = Mathf.MoveToward(_slash, 0f, dt / SlashSeconds);
+        float strike = 1f - _slash;
+        float reach = _slash <= 0f ? 0f
+            : strike < 0.35f ? Mathf.SmoothStep(0f, 1f, strike / 0.35f)
+            : 1f - Mathf.SmoothStep(0f, 1f, (strike - 0.35f) / 0.65f);
+        float rake = _slash > 0f && strike is > 0.3f and < 0.8f ? Mathf.Sin((strike - 0.3f) / 0.5f * Mathf.Pi) : 0f;
+
+        // Spread the wings to fly, half-tuck them to dive, and fold them away on the ground. Slashing, they flare
+        // wide, quickly.
+        bool slashing = _slash > 0f;
+        _fold = Mathf.MoveToward(_fold, slashing ? 0.1f : IsFlying ? Dive * 0.55f : 1f, dt * (slashing ? 10f : 3.5f));
 
         // Waddle: a short alternate step with a side-to-side roll of the body.
         _walkCycle += speed * 9f * dt;
@@ -93,8 +116,9 @@ public abstract partial class Bird : Animal
 
         // Upright when standing and tipping forward to drink; level in flight. Sitting, the bird settles low on its
         // folded legs, leaning forward a little; lying, it rests its breast on the ground, nearly level, as on a nest.
-        float pitch = Pose(Mathf.Lerp(StandingPitch - eat * 0.75f, 0f, air), SitPitch, LiePitch);
-        float hips = Pose(HipHeight, SitHipHeight, LieHipHeight);
+        // Striking, the body rears back to swing the feet forward, and on the ground it springs up off them.
+        float pitch = Pose(Mathf.Lerp(StandingPitch - eat * 0.75f, 0f, air), SitPitch, LiePitch) + reach * 0.5f * (1f - air * 0.3f);
+        float hips = Pose(HipHeight, SitHipHeight, LieHipHeight) + reach * HipHeight * 0.8f * (1f - air);
         Body.Position = new Vector3(0, hips, 0);
         Body.Rotation = new Vector3(pitch, 0, 0);
 
@@ -110,9 +134,11 @@ public abstract partial class Bird : Animal
             // Legs hang straight down under an upright body, and trail back under the tail in flight. Carrying prey,
             // they reach down and a little forward under the body instead, toes curled to clench it in the talons.
             float flying = Mathf.Lerp(-1.35f, 0.15f, clutch);
-            Legs[i].Rotation = new Vector3(Mathf.Lerp(-pitch + swing, flying, air) - fold, 0, 0);
-            Shanks[i].Rotation = new Vector3(fold * 2f, 0, 0);
-            Feet[i].Rotation = new Vector3(-fold + clutch * air * 0.5f, 0, 0);
+            // A slash swings each leg out straight in front, toes spread, then rakes it back, clenching.
+            float leg = Mathf.Lerp(Mathf.Lerp(-pitch + swing, flying, air) - fold, -pitch + 1.1f, reach) - rake * 1.2f;
+            Legs[i].Rotation = new Vector3(leg, 0, 0);
+            Shanks[i].Rotation = new Vector3(fold * 2f * (1f - reach), 0, 0);
+            Feet[i].Rotation = new Vector3(Mathf.Lerp(-fold + clutch * air * 0.5f, -0.6f, reach) + rake * 0.9f, 0, 0);
         }
 
         // The head stays level whatever the body does, and dips to drink.

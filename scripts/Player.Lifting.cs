@@ -7,10 +7,64 @@ namespace IceAgeWorld;
 /// the air, kicking, the way golden eagles take hares and foxes. G again lets go, and it falls: dropped from high
 /// enough, the fall kills it, as eagles drop tortoises and bones onto rocks. Carrying the extra weight is hard work:
 /// it drains stamina even while gliding, the bird climbs more slowly, and once it is spent it has to let go. Landing
-/// sets the prey down unhurt.
+/// sets the prey down unhurt. Standing beside small prey on the ground, G seizes it and takes off with it.
+///
+/// Anything too heavy to lift gets the talons instead: G slashes at it, in the air or springing up off the ground,
+/// raking it with both feet. That strikes hard and leaves a deep wound that bleeds for a while after, as eagles strike
+/// at deer and foxes too big to carry off, and owls rake anything that comes near their nest.
 /// </summary>
 public partial class Player
 {
+    /// <summary>How hard a talon slash strikes, compared with a hunter's bite.</summary>
+    [Export] public float SlashStrength { get; set; } = 1.5f;
+
+    /// <summary>How badly the wound a slash leaves bleeds, compared with one from a snow leopard's clamped jaws.</summary>
+    [Export] public float SlashBleed { get; set; } = 1f;
+
+    /// <summary>When the last talon slash began, in milliseconds, so the next waits for the feet to come back.</summary>
+    private ulong _lastSlash;
+
+    /// <summary>
+    /// The bird's special attack on <paramref name="prey"/>: seizes it alive if it is light enough to lift, otherwise
+    /// slashes at it with the talons. In the air the bird carries on flying; on the ground it takes off with prey it
+    /// seizes. With no prey it slashes at the air. Does nothing while the bird is spent or its feet are still coming
+    /// back from the last slash.
+    /// </summary>
+    private void TalonAttack(Animal? prey)
+    {
+        if (IsExhausted || Time.GetTicksMsec() - _lastSlash < (ulong)(Bird.SlashSeconds * 1000f))
+            return;
+
+        if (prey is not null && CanLift(prey))
+        {
+            if (!Animal.IsFlying)
+                TakeOff((prey.GlobalPosition - GlobalPosition) with { Y = 0f });
+            StartLift(prey);
+            return;
+        }
+
+        _lastSlash = Time.GetTicksMsec();
+        (Animal as Bird)?.Slash();
+        Stamina = Mathf.Max(0f, Stamina - PounceStamina * 1.5f);
+        if (Stamina <= 0f)
+            IsExhausted = true;
+
+        // On the ground the bird springs at its target, wings flared, to reach it with its feet.
+        if (!Animal.IsFlying)
+        {
+            var toward = prey is null ? Forward(Animal.Rotation.Y) : (prey.GlobalPosition - GlobalPosition) with { Y = 0f };
+            if (toward.LengthSquared() > 0.0001f)
+            {
+                toward = toward.Normalized();
+                Animal.Rotation = new Vector3(0, Yaw(toward), 0);
+                _lunge = toward * Stats.JumpBoost * 0.5f;
+            }
+        }
+
+        // Unless the strike killed it, the talons leave it bleeding.
+        if (prey is not null && !Wildlife!.Bite(prey, BiteStrength * SlashStrength * Size * Size, GlobalPosition))
+            Wildlife.Bleed(prey, SlashBleed * Size * Size);
+    }
     /// <summary>
     /// How heavy an animal the eagle can lift alive, compared with its own bulk: a hare, an otter or a youngster, but
     /// not a grown wolf or reindeer, which are far too heavy to carry off kicking.
