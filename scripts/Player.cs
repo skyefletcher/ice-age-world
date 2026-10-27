@@ -396,8 +396,8 @@ public partial class Player : CharacterBody3D
         }
 
         // Sit or lie down, or get up again. Moving or jumping gets the animal up, but it can't go anywhere until it's
-        // back on its feet.
-        bool resting = UpdatePosture(dt, IsOnFloor() && !IsSwimming && !IsFeeding, direction != Vector3.Zero);
+        // back on its feet. Eating gets it up too, except an eagle brooding on her nest, who eats lying on her eggs.
+        bool resting = UpdatePosture(dt, IsOnFloor() && !IsSwimming && (!IsFeeding || Brooding is not null), direction != Vector3.Zero);
         UpdateFeeding(dt, lookForFood: IsOnFloor() && !IsSwimming);
         Fight(dt, resting);
         if (Stats.Can(Ability.Hunt))

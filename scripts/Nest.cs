@@ -90,10 +90,10 @@ public partial class Nest : Node3D
             {
                 Mesh = new SphereMesh { Radius = 0.04f, Height = 0.08f, RadialSegments = 12, Rings = 6 },
                 MaterialOverride = shell,
-                Position = new Vector3(Mathf.Cos(angle) * 0.11f, Depth + 0.03f, Mathf.Sin(angle) * 0.11f),
+                Position = new Vector3(Mathf.Cos(angle) * 0.17f, Depth + 0.055f, Mathf.Sin(angle) * 0.17f),
                 Rotation = new Vector3(Mathf.Pi / 2f, angle, 0f),
-                // An eagle's egg is about 7 cm long and 5.5 cm across.
-                Scale = new Vector3(0.7f, 0.9f, 0.7f),
+                // Twice the size of a real eagle's egg (about 7 cm long and 5.5 cm across), so they show up in the nest.
+                Scale = new Vector3(1.4f, 1.8f, 1.4f),
             };
             AddChild(egg);
             _eggs.Add(egg);

@@ -1251,6 +1251,11 @@ public partial class Wildlife : Node3D
                 }
                 break;
 
+            case Activity.Hunting when !bear.HuntsPlayer && bear.Prey is null:
+                // Nothing left to hunt, e.g. reborn mid-hunt: it gives up.
+                BearGivesUp(bear, me);
+                break;
+
             case Activity.Hunting when bear.HuntsPlayer:
                 var player = Player!;
                 bear.OutOfReach = player.OnTheGround ? 0f : bear.OutOfReach + dt;
@@ -1605,6 +1610,12 @@ public partial class Wildlife : Node3D
         // Reborn, a snow leopard makes up its own mind about the player's afresh.
         group.Refuses = null;
         group.HuntsPlayer = false;
+        // A hunt on the player is called off with it, so a group left hunting with no prey goes back to roaming.
+        if (group.Activity == Activity.Hunting && group.Prey is null)
+        {
+            group.Activity = Activity.Roaming;
+            group.Timer = 0f;
+        }
         EndSquabble(group);
         EndChallenge(group);
         beast.Stamina = 100f;

@@ -5,7 +5,7 @@ namespace IceAgeWorld;
 
 /// <summary>
 /// Raids on the player's eagle nest. Eggs are a meal for any hunter that can get at them, so every few minutes while
-/// the nest still has eggs in it, the nearest wild hunter comes for it: on the ground anything from a wolf or hyena to
+/// the nest still has eggs in it, the nearest wild hunter comes for it, giving up any hunt it's on: on the ground anything from a wolf or hyena to
 /// a bear or big cat; up a tree only a snow leopard, the one hunter here that climbs. It goes straight to the nest,
 /// climbing the trunk if it must, and eats the eggs one after another until it's driven off. The player's mate and
 /// grown eaglets fly at it and rake it with their talons, as eagles do to defend a nest, and the player can fight it
@@ -59,16 +59,34 @@ public partial class Wildlife
             return;
         _raidWait = _rng.RandfRange(RaidMin, RaidMax);
 
-        // A hunter going about its own business, not already hunting, fleeing or fighting, and able to reach the nest.
+        // A hunter able to reach the nest, and not fleeing, fighting or busy with a kill. One in the middle of a chase,
+        // after other prey or the player, will do too: eggs are an easier meal than anything that runs or fights back,
+        // so it gives up the hunt and makes for the nest instead.
         bool inTree = nest.Tree.HasValue;
         var raider = _beasts.Values
             .Where(b => !b.IsDead && !b.OnTree && b.Animal is not Bird && b.Animal.Stats.Can(Ability.Hunt)
-                && (!inTree || b.Animal is SnowLeopard) && b.Group.Fleeing <= 0f && b.Group.Prey is null
-                && !b.Group.HuntsPlayer && !b.Group.ChallengesMate && b.Health >= HealthBar.High
+                && (!inTree || b.Animal is SnowLeopard) && b.Group.Fleeing <= 0f
+                && (b.Group.Prey is null || b.Group.Activity == Activity.Hunting)
+                && !b.Group.ChallengesMate && b.Group.Rival is null && b.Health >= HealthBar.High
                 && b.Body.GlobalPosition.DistanceTo(nest.GlobalPosition) < RaidRange)
             .MinBy(b => b.Body.GlobalPosition.DistanceSquaredTo(nest.GlobalPosition));
-        if (raider is not null)
-            _raid = new Raid { Raider = raider, Nest = nest };
+        if (raider is null)
+            return;
+        CallOffHunt(raider.Group);
+        _raid = new Raid { Raider = raider, Nest = nest };
+    }
+
+    /// <summary>The group gives up whatever it was chasing to go for the nest, and is back to roaming once the raid ends.</summary>
+    private static void CallOffHunt(Group group)
+    {
+        group.HuntsPlayer = false;
+        if (group.Activity != Activity.Hunting)
+            return;
+        group.Prey = null;
+        group.OutOfReach = 0f;
+        group.Activity = Activity.Roaming;
+        group.Timer = 0f;
+        group.Linger = 0f;
     }
 
     /// <summary>The raid is over: a raider up the tree drops back to the ground, and it runs off.</summary>
