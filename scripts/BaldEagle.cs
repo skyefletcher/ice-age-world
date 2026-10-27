@@ -181,7 +181,8 @@ public partial class BaldEagle : Animal
     {
         Scale = Vector3.One * BodyScale;
         var rng = new RandomNumberGenerator { Seed = Seed };
-        var plumage = ProceduralTextures.Fur(Seed, new Color(0.1f, 0.065f, 0.04f), new Color(0.26f, 0.17f, 0.1f), 6f);
+        // An adult's body is an even dark chocolate brown, each feather edged a little paler, not mottled.
+        var plumage = ProceduralTextures.Fur(Seed, new Color(0.12f, 0.075f, 0.045f), new Color(0.21f, 0.135f, 0.08f), 6f);
         var whitePlumage = ProceduralTextures.Fur(Seed + 1, new Color(0.84f, 0.84f, 0.82f), new Color(0.98f, 0.98f, 0.97f), 6f);
         var feather = new StandardMaterial3D { VertexColorUseAsAlbedo = true, VertexColorIsSrgb = true, Roughness = 0.85f };
         var yellow = new StandardMaterial3D { AlbedoColor = Yellow, Roughness = 0.45f };
@@ -205,15 +206,15 @@ public partial class BaldEagle : Animal
             return p + bodyPosition;
         };
         Attach(_body, "Plumage", Ellipsoid(bodyShape, 28, 18, plumage));
-        Attach(_body, "Contour", Strands(rng, OnShape(rng, bodyShape, 1800, _ => true), new Vector3(0, 0, 1f),
-            0.025f, 0.04f, Colors.White, Colors.White, _hair, width: 0.03f, colouring: plumageColour));
+        Attach(_body, "Contour", Strands(rng, OnShape(rng, bodyShape, 2600, _ => true), new Vector3(0, 0, 1f),
+            0.022f, 0.036f, Colors.White, Colors.White, _hair, width: 0.022f, colouring: plumageColour));
 
         // Neck and head, pure white, the head flat-crowned with a heavy brow over the eyes.
         _neck = Pivot(_body, "Neck", new Vector3(0, 0.08f, -0.27f));
         var headPosition = new Vector3(0, 0.06f, -0.06f);
         Attach(_neck, "Throat", Tube([new Vector3(0, -0.02f, 0.04f), headPosition], [0.075f, 0.055f], 12, whitePlumage, capEnd: false));
         Attach(_neck, "Hackles", Strands(rng, OnSegment(rng, 500, new Vector3(0, -0.02f, 0.04f), headPosition, 0.075f, 0.055f),
-            new Vector3(0, -0.2f, 1f), 0.025f, 0.045f, Colors.White, Colors.White, _hair, width: 0.022f, colouring: whiteColour));
+            new Vector3(0, -0.2f, 1f), 0.022f, 0.04f, Colors.White, Colors.White, _hair, width: 0.014f, colouring: whiteColour));
         _head = Pivot(_neck, "Head", headPosition);
         BuildHead(_head, rng, whitePlumage, whiteColour, yellow);
 
@@ -242,18 +243,24 @@ public partial class BaldEagle : Animal
             // onto its folded legs; the foot hinges again to stay flat on the ground.
             _shanks[i] = Pivot(_legs[i], "Shank", new Vector3(0, -0.1f, 0));
             Attach(_shanks[i], "Shank", Tube([Vector3.Zero, new Vector3(0, -0.125f, 0)], [0.016f, 0.014f], 8, yellow, capEnd: false));
+            // The feathering runs on down over the top half of the leg, as in all true eagles; only the lower half is bare.
+            Attach(_shanks[i], "ShankFeathers", Strands(rng, OnSegment(rng, 140, new Vector3(0, 0.01f, 0), new Vector3(0, -0.055f, 0), 0.02f, 0.017f),
+                new Vector3(0, -1f, 0), 0.02f, 0.032f, Colors.White, Colors.White, _hair, width: 0.016f, colouring: plumageColour));
 
             _feet[i] = Pivot(_shanks[i], "Foot", new Vector3(0, -0.13f, 0));
             var foot = Vector3.Zero;
             Attach(_feet[i], "Ball", new SphereMesh { Radius = 0.018f, Height = 0.036f, Material = yellow }, foot);
             foreach (float angle in new[] { -0.45f, 0f, 0.45f, Mathf.Pi })
             {
-                // Three toes spread forward and one points back, each ending in a hooked black talon.
+                // Three thick toes spread forward and one points back, each ending in a long black talon curved like a
+                // sickle; the back one, which does most of the killing, is the biggest.
                 var dir = new Vector3(Mathf.Sin(angle), 0, -Mathf.Cos(angle));
-                var tip = foot + dir * (angle == Mathf.Pi ? 0.045f : 0.06f) + Vector3.Down * 0.006f;
-                Attach(_feet[i], "Toe", Tube([foot, tip], [0.011f, 0.008f], 8, yellow, capEnd: true));
-                Attach(_feet[i], "Talon", Tube([tip, tip + dir * 0.014f + Vector3.Up * 0.002f, tip + dir * 0.022f + Vector3.Down * 0.01f],
-                    [0.006f, 0.004f, 0.001f], 6, talon, capEnd: true));
+                bool hallux = angle == Mathf.Pi;
+                float claw = hallux ? 1.3f : 1f;
+                var tip = foot + dir * (hallux ? 0.045f : 0.06f) + Vector3.Down * 0.006f;
+                Attach(_feet[i], "Toe", Tube([foot, foot + dir * 0.03f + Vector3.Up * 0.003f, tip], [0.013f, 0.011f, 0.009f], 8, yellow, capEnd: true));
+                Attach(_feet[i], "Talon", Tube([tip, tip + (dir * 0.014f + Vector3.Up * 0.005f) * claw, tip + (dir * 0.026f + Vector3.Down * 0.002f) * claw,
+                    tip + (dir * 0.028f + Vector3.Down * 0.016f) * claw], [0.0068f, 0.0052f, 0.003f, 0.0008f], 6, talon, capEnd: true));
             }
         }
 
@@ -266,28 +273,36 @@ public partial class BaldEagle : Animal
             var outward = new Vector3(side, 0, 0);
             _arms[i] = Pivot(_body, "Wing", new Vector3(side * 0.085f, 0.09f, -0.16f));
 
-            // Coverts over the arm, and secondaries along its trailing edge, each a little longer towards the body.
+            // Coverts over the arm, then a row of greater coverts lapping over the bases of the secondaries, which overlap
+            // each other into one unbroken trailing edge, each a little longer towards the body.
             Attach(_arms[i], "Coverts", Ellipsoid(new Vector3(ArmLength * 0.6f, 0.022f, 0.12f), 18, 8, plumage),
                 outward * ArmLength * 0.5f + new Vector3(0, 0.008f, 0.05f));
-            for (int f = 0; f < 10; f++)
+            for (int f = 0; f < 12; f++)
             {
-                float x = Mathf.Lerp(0.03f, ArmLength, f / 9f);
-                Attach(_arms[i], "Secondary", Feather(rng, outward * x + new Vector3(0, -0.004f * (f % 2), 0.02f), Vector3.Back,
-                    Mathf.Lerp(0.3f, 0.27f, f / 9f), 0.03f, Brown, feather));
+                float x = Mathf.Lerp(0.03f, ArmLength, f / 11f);
+                Attach(_arms[i], "GreaterCovert", Feather(rng, outward * x + new Vector3(0, 0.006f + 0.001f * (f % 2), 0.06f), Vector3.Back,
+                    0.14f, 0.04f, Brown * 1.15f, feather));
+            }
+            for (int f = 0; f < 16; f++)
+            {
+                float x = Mathf.Lerp(0.03f, ArmLength, f / 15f);
+                Attach(_arms[i], "Secondary", Feather(rng, outward * x + new Vector3(0, -0.003f * (f % 2), 0.02f), Vector3.Back,
+                    Mathf.Lerp(0.3f, 0.27f, f / 15f), 0.04f, Brown, feather));
             }
 
-            // The hand: primaries fan from pointing back at the wrist to pointing out at the tip, where the outer ones
-            // stand apart as the "fingers" eagles soar on.
+            // The hand: primaries fan from pointing back at the wrist to pointing out at the tip. The inner ones are broad
+            // and overlap; the outer six are narrow near their ends and stand apart as the "fingers" eagles soar on.
             _hands[i] = Pivot(_arms[i], "Hand", outward * ArmLength);
             Attach(_hands[i], "Coverts", Ellipsoid(new Vector3(HandLength * 0.38f, 0.018f, 0.1f), 14, 8, plumage),
                 outward * HandLength * 0.25f + new Vector3(0, 0.008f, 0.04f));
-            for (int f = 0; f < 9; f++)
+            for (int f = 0; f < 10; f++)
             {
-                float t = f / 8f;
-                float angle = Mathf.Lerp(0.15f, 1.3f, t);
+                float t = f / 9f;
+                bool finger = f >= 4;
+                float angle = finger ? Mathf.Lerp(0.55f, 1.3f, (f - 4) / 5f) : Mathf.Lerp(0.12f, 0.45f, f / 3f);
                 var dir = new Vector3(side * Mathf.Sin(angle), 0, Mathf.Cos(angle));
-                var root = outward * Mathf.Lerp(0.02f, HandLength * 0.42f, t) + new Vector3(0, -0.004f * (f % 2), 0.02f);
-                Attach(_hands[i], "Primary", Feather(rng, root, dir, Mathf.Lerp(0.3f, 0.42f, Mathf.Sin(t * 2.6f)), t > 0.4f ? 0.026f : 0.034f,
+                var root = outward * Mathf.Lerp(0.02f, HandLength * 0.42f, t) + new Vector3(0, -0.003f * (f % 2), 0.02f);
+                Attach(_hands[i], "Primary", Feather(rng, root, dir, Mathf.Lerp(0.3f, 0.42f, Mathf.Sin(t * 2.6f)), finger ? 0.027f : 0.042f,
                     Brown, feather));
             }
         }
@@ -304,8 +319,8 @@ public partial class BaldEagle : Animal
 
         var skull = new Vector3(0.055f, 0.05f, 0.072f);
         Attach(head, "Skull", Ellipsoid(u => (u * skull) with { Y = u.Y * skull.Y * (u.Y > 0 ? 0.85f : 1f) }, 22, 16, white));
-        Attach(head, "Feathers", Strands(rng, OnShape(rng, u => u * skull, 500, u => u.Z > -0.6f), new Vector3(0, -0.1f, 1f),
-            0.015f, 0.028f, Colors.White, Colors.White, _hair, width: 0.016f, colouring: whiteColour));
+        Attach(head, "Feathers", Strands(rng, OnShape(rng, u => u * skull, 700, u => u.Z > -0.6f), new Vector3(0, -0.1f, 1f),
+            0.012f, 0.022f, Colors.White, Colors.White, _hair, width: 0.011f, colouring: whiteColour));
 
         // Beak: the upper mandible sweeps forward from the cere and hooks down over a smaller lower one.
         Vector3 p0 = new(0, 0.002f, -0.05f), p1 = new(0, 0.01f, -0.09f), p2 = new(0, -0.002f, -0.12f), p3 = new(0, -0.036f, -0.115f);
@@ -316,21 +331,33 @@ public partial class BaldEagle : Animal
         {
             float t = s / (float)steps;
             path[s] = p0.BezierInterpolate(p1, p2, p3, t);
-            radii[s] = Mathf.Lerp(0.022f, 0.003f, Mathf.Pow(t, 1.3f));
+            radii[s] = Mathf.Lerp(0.025f, 0.003f, Mathf.Pow(t, 1.2f));
         }
-        Attach(head, "Beak", Tube(path, radii, 12, yellow, capEnd: true));
-        // The lower mandible hinges at the corner of the mouth, so the beak gapes to tear at food or drink.
+        // It is narrow from side to side and deep from top to bottom: a blade for tearing rather than a round cone.
+        Attach(head, "Beak", Tube(path, radii, 12, yellow, capEnd: true)).Scale = new Vector3(0.72f, 1f, 1f);
+        // The cere: a band of softer, paler waxy skin over the base of the beak, where the nostrils open.
+        var cere = new StandardMaterial3D { AlbedoColor = new Color(0.98f, 0.84f, 0.38f), Roughness = 0.7f };
+        Attach(head, "Cere", Tube([new Vector3(0, 0.003f, -0.045f), new Vector3(0, 0.005f, -0.068f)], [0.024f, 0.022f], 12, cere, capEnd: false))
+            .Scale = new Vector3(0.76f, 1f, 1f);
+        // The lower mandible hinges at the corner of the mouth, so the beak gapes to tear at food or drink. It runs
+        // nearly the length of the upper one, tucked inside the hook.
         var jaw = Jaw(head, new Vector3(0, -0.012f, -0.045f));
-        Attach(jaw, "LowerBeak", Tube([new Vector3(0, -0.002f, -0.005f), new Vector3(0, -0.008f, -0.043f)], [0.014f, 0.004f], 10, yellow, capEnd: true));
+        Attach(jaw, "LowerBeak", Tube([new Vector3(0, -0.002f, -0.003f), new Vector3(0, -0.005f, -0.03f), new Vector3(0, -0.002f, -0.05f)],
+            [0.014f, 0.008f, 0.003f], 10, yellow, capEnd: true)).Scale = new Vector3(0.7f, 1f, 1f);
         MouthInside(jaw, new Vector3(0.006f, 0.003f, 0.018f), new Vector3(0, 0.004f, -0.018f));
 
         foreach (float side in new[] { -1f, 1f })
         {
-            Attach(head, "Nostril", Ellipsoid(new Vector3(0.002f, 0.004f, 0.006f), 8, 6, dark), new Vector3(side * 0.02f, 0.01f, -0.07f));
+            // A slit of a nostril on the cere, angled back along the beak.
+            Attach(head, "Nostril", Ellipsoid(new Vector3(0.0015f, 0.003f, 0.0065f), 8, 6, dark), new Vector3(side * 0.0165f, 0.009f, -0.058f))
+                .Rotation = new Vector3(-0.35f, 0, 0);
+            // The yellow gape: the corner of the mouth runs back to below the eye.
+            Attach(head, "Gape", Tube([new Vector3(side * 0.016f, -0.011f, -0.052f), new Vector3(side * 0.027f, -0.006f, -0.034f)],
+                [0.004f, 0.0025f], 6, yellow, capEnd: true));
 
-            // Eyes face forward and out, giving the eagle its binocular stare, under a ledge of brow.
-            Eye(head, new Vector3(side * 0.037f, 0.012f, -0.04f), new Vector3(0, -side * 0.6f, 0), 0.0095f, new Color(0.95f, 0.85f, 0.45f), 0.5f);
-            Attach(head, "Brow", Ellipsoid(new Vector3(0.017f, 0.006f, 0.022f), 10, 6, white), new Vector3(side * 0.031f, 0.023f, -0.043f));
+            // Eyes face forward and out, giving the eagle its binocular stare, deep-set under a ledge of brow.
+            Eye(head, new Vector3(side * 0.039f, 0.01f, -0.038f), new Vector3(0, -side * 0.6f, 0), 0.011f, new Color(0.96f, 0.88f, 0.5f), 0.45f);
+            Attach(head, "Brow", Ellipsoid(new Vector3(0.017f, 0.007f, 0.026f), 10, 6, white), new Vector3(side * 0.03f, 0.022f, -0.041f));
         }
     }
 

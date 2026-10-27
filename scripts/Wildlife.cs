@@ -228,6 +228,10 @@ public partial class Wildlife : Node3D
         /// </summary>
         public Vector3? HeldAt;
 
+        /// <summary>Which way the hunter carrying it faces, and whether it holds it by the neck in its jaws or by the back in talons.</summary>
+        public Vector3 HeldFacing;
+        public bool InJaws;
+
         /// <summary>
         /// Where an eagle's talons hold it, alive and kicking, while the bird carries it up into the air; let go of,
         /// it falls, and a long drop kills it.
@@ -723,17 +727,21 @@ public partial class Wildlife : Node3D
     public bool CanCarry(Animal carcass, float maxBulk) => _beasts.TryGetValue(carcass, out var beast) && beast.Bulk <= maxBulk;
 
     /// <summary>
-    /// A hunter has the carcass in its jaws at <paramref name="mouth"/>, facing <paramref name="yaw"/>; call every frame
-    /// while carrying it. It hangs below the jaws, held crosswise as big cats carry a kill, and drags along the ground
-    /// when the jaws are low.
+    /// A hunter has the carcass in its jaws at <paramref name="grip"/>, facing <paramref name="facing"/>; call every
+    /// frame while carrying it. Held <paramref name="byTheNeck"/>, as big cats and wolves carry a kill, it hangs limp
+    /// from the scruff, swinging as the hunter goes and dragging its rump when the jaws are low; otherwise it hangs
+    /// level from its back, as in an eagle's talons (see <see cref="Animal.Hang"/>).
     /// </summary>
-    public void Hold(Animal carcass, Vector3 mouth, float yaw)
+    public void Hold(Animal carcass, Vector3 grip, Vector3 facing, bool inJaws)
     {
         if (!_beasts.TryGetValue(carcass, out var beast))
             return;
-        beast.HeldAt = mouth;
+        beast.HeldAt = grip;
+        beast.HeldFacing = facing;
+        beast.InJaws = inJaws;
         beast.Perched = false;
-        beast.Yaw = yaw + Mathf.Pi / 2f;
+        // Dropped, it lands lying crosswise in front of the hunter.
+        beast.Yaw = Mathf.Atan2(-facing.X, -facing.Z) + Mathf.Pi / 2f;
     }
 
     /// <summary>
@@ -2206,13 +2214,11 @@ public partial class Wildlife : Node3D
         beast.Velocity = Vector3.Zero;
 
         // A body in the water floats; on land it lies on the ground, unless it's in a hunter's jaws or lodged up a tree.
-        var position = beast.HeldAt is { } mouth ? mouth + Vector3.Down * beast.Animal.Stats.BodyRadius * beast.Size : beast.Body.GlobalPosition;
+        var position = beast.HeldAt ?? beast.Body.GlobalPosition;
         float ground = _terrain.GroundBelow(position);
         float? surface = _water.SurfaceAt(position);
         bool afloat = surface.HasValue && surface.Value - ground > beast.Animal.Stats.FloatDepth * beast.Size;
-        if (beast.HeldAt.HasValue)
-            position.Y = Mathf.Max(position.Y, ground);
-        else if (!beast.Perched)
+        if (!beast.HeldAt.HasValue && !beast.Perched)
             position.Y = Drop(beast, position.Y, afloat ? surface!.Value - beast.Animal.Stats.FloatDepth * beast.Size : ground, 0.05f,
                 soft: afloat, dt);
         beast.Body.GlobalPosition = position;
@@ -2224,8 +2230,17 @@ public partial class Wildlife : Node3D
         // the last of it sinks into the snow as it rots away, just before the rebirth.
         float sink = Mathf.Clamp((beast.DeadTime - (RebirthSeconds - RotSeconds)) / RotSeconds, 0f, 1f);
         beast.Body.Scale = new Vector3(beast.Size, beast.Size * (1f - sink), beast.Size);
-        if (Seen(beast))
-            beast.Animal.Animate(0f, 0f, 0f, dt);
+        if (!Seen(beast))
+            return;
+        beast.Animal.Animate(0f, 0f, 0f, dt);
+
+        // Limp, it settles where it lies, its legs, head and tail falling to the ground; afloat, they rest on the
+        // water. Carried, it hangs from the hunter's grip and swings.
+        float waterline = afloat ? surface!.Value - beast.Animal.Stats.FloatDepth * beast.Size : float.MinValue;
+        float Floor(Vector3 at) => Mathf.Max(_terrain.GroundBelow(at), waterline);
+        if (beast.HeldAt is { } grip)
+            beast.Body.GlobalPosition += beast.Animal.Hang(grip, beast.HeldFacing, beast.InJaws, dt);
+        beast.Animal.Flop(dt, Floor);
     }
 
     /// <summary>

@@ -139,6 +139,11 @@ public partial class Player
         Animal.Settle(Posture.Lying, 0.6f, dt);
         Animal.Dead = Mathf.MoveToward(Animal.Dead, 1f, dt / 0.8f);
         AnimateAnimal(0f, 0f, 0f, dt);
+        if (Terrain is { } terrain)
+        {
+            float waterline = afloat ? surface!.Value - Stats.FloatDepth : float.MinValue;
+            Animal.Flop(dt, at => Mathf.Max(terrain.GroundBelow(at), waterline));
+        }
 
         // The last of the blood runs out as it falls.
         if (_blood is not null && Animal.Dead >= 1f)

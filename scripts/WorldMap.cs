@@ -1,22 +1,27 @@
+using System;
 using Godot;
 
 namespace IceAgeWorld;
 
 /// <summary>
-/// A map of the whole world, shown and hidden with M: green steppe, white snowfields and grey crags, blue lakes and
-/// dark specks of forest, black marks for cave mouths, drawn once from the terrain, with north at the top. Over it, an arrow shows where the player
-/// is and which way it faces, and dots show where every other animal of its kind is: the wild ones in gold and the
-/// player's own pack, herd or family in green.
+/// A round map of the land round the player, as in Savannah Life, in the bottom left corner unless hidden with M: green
+/// steppe, white snowfields and grey crags, blue lakes and dark specks of forest, black marks for cave mouths, drawn
+/// once from the terrain, with north at the top. It follows the player, the arrow in the middle pointing the way it
+/// faces, and shows only the land nearby. Dots show where every other animal of its kind is: the wild ones in gold and
+/// the player's own pack, herd or family in green.
 /// </summary>
 public partial class WorldMap : Control
 {
     public Player? Player { get; set; }
 
     /// <summary>Pixels across the map picture; each covers a few metres of ground.</summary>
-    private const int Pixels = 256;
+    private const int Pixels = 512;
 
     /// <summary>How much of the screen's shorter side the map fills.</summary>
-    private const float ScreenShare = 0.85f;
+    private const float ScreenShare = 0.3f;
+
+    /// <summary>How much of the world's width the map shows across, round the player: the land within a short run.</summary>
+    private const float ViewShare = 0.3f;
 
     private static readonly Color Steppe = new(0.45f, 0.6f, 0.32f);
     private static readonly Color Tundra = new(0.78f, 0.78f, 0.7f);
@@ -34,7 +39,7 @@ public partial class WorldMap : Control
     {
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         MouseFilter = MouseFilterEnum.Ignore;
-        Visible = false;
+        Visible = true;
     }
 
     public override void _Process(double delta)
@@ -51,16 +56,37 @@ public partial class WorldMap : Control
             return;
         _picture ??= Paint(terrain);
 
-        // A square map in the middle of the screen, with a strip for the key beneath it, all on a dark backing.
+        // A small round map in the bottom left corner, clear of the needs in the bottom right, on a dark disc with a
+        // gold rim to match the needs' badges, and the key on a dark strip beneath it.
         var screen = GetViewportRect().Size;
         float side = Mathf.Min(screen.X, screen.Y - KeyHeight) * ScreenShare;
-        var area = new Rect2((screen - new Vector2(side, side + KeyHeight)) / 2f, new Vector2(side, side));
-        DrawRect(new Rect2(area.Position - new Vector2(8f, 8f), new Vector2(side + 16f, side + KeyHeight + 12f)), new Color(0f, 0f, 0f, 0.8f));
-        DrawTextureRect(_picture, area, false);
+        var area = new Rect2(new Vector2(Margin, screen.Y - Margin - KeyHeight - side), new Vector2(side, side));
+        var middle = area.GetCenter();
+        float radius = side / 2f;
+        var backing = new Color(0f, 0f, 0f, 0.8f);
+        DrawCircle(middle, radius + 7f, backing);
+        // The picture is cut round where the player is.
+        var player = Player.GlobalPosition;
+        var here = new Vector2(player.X + terrain.HalfSize, player.Z + terrain.HalfSize) / (terrain.HalfSize * 2f);
+        var rim = new Vector2[RimPoints];
+        var uvs = new Vector2[RimPoints];
+        for (int i = 0; i < RimPoints; i++)
+        {
+            var round = Vector2.FromAngle(Mathf.Tau * i / RimPoints);
+            rim[i] = middle + round * radius;
+            uvs[i] = here + round * ViewShare / 2f;
+        }
+        DrawPolygon(rim, new[] { Colors.White }, uvs, _picture);
+        DrawArc(middle, radius + 2f, 0f, Mathf.Tau, RimPoints, NeedsPanel.Gold, 4f, true);
 
-        // World X runs left to right and Z top to bottom, so -Z, north, is up.
-        Vector2 ToMap(Vector3 at) =>
-            area.Position + new Vector2(at.X + terrain.HalfSize, at.Z + terrain.HalfSize) / (terrain.HalfSize * 2f) * side;
+        // World X runs left to right and Z top to bottom, so -Z, north, is up, and the player is in the middle.
+        // Anything further off than the map reaches is shown on the rim, in the direction it lies.
+        Vector2 ToMap(Vector3 at)
+        {
+            var spot = middle + new Vector2(at.X - player.X, at.Z - player.Z) / (terrain.HalfSize * ViewShare) * radius;
+            var away = spot - middle;
+            return away.Length() > radius - 6f ? middle + away.Normalized() * (radius - 6f) : spot;
+        }
 
         // Every other animal of the player's kind: the wild ones first, then its own companions on top.
         var kind = Player.Animal.GetType();
@@ -72,21 +98,43 @@ public partial class WorldMap : Control
         // The player: an arrow pointing the way it faces.
         Arrow(ToMap(Player.GlobalPosition), Player.Animal.Rotation.Y);
 
-        // North, and a key to the marks.
+        // North, and a key to the marks, laid out one after another on a dark strip beneath the map, as wide as it
+        // needs to be (wider than the little map itself).
         var font = ThemeDB.FallbackFont;
-        DrawString(font, new Vector2(area.GetCenter().X - 6f, area.Position.Y + 22f), "N", fontSize: 20, modulate: Ink);
-        var key = area.Position + new Vector2(14f, side + 30f);
-        Arrow(key + new Vector2(0f, -6f), 0f);
-        DrawString(font, key + new Vector2(16f, 0f), "You", fontSize: 18);
-        Dot(key + new Vector2(80f, -6f), Wild);
-        DrawString(font, key + new Vector2(92f, 0f), $"Wild {Plural(Player.Animal.DisplayName.ToLower())}", fontSize: 18);
-        Dot(key + new Vector2(290f, -6f), Own);
-        DrawString(font, key + new Vector2(302f, 0f), "With you", fontSize: 18);
-        DrawString(font, key + new Vector2(side - 120f, 0f), "M to close", fontSize: 18);
+        DrawString(font, new Vector2(middle.X - 5f, area.Position.Y + 18f), "N", fontSize: 14, modulate: Ink);
+        (string Text, Action<Vector2> Mark)[] entries =
+        [
+            ("You", at => Arrow(at, 0f)),
+            ($"Wild {Plural(Player.Animal.DisplayName.ToLower())}", at => Dot(at, Wild)),
+            ("With you", at => Dot(at, Own)),
+        ];
+        float EntryWidth(string text) => 12f + font.GetStringSize(text, fontSize: KeyFont).X + 16f;
+        float width = 0f;
+        foreach (var (text, _) in entries)
+            width += EntryWidth(text);
+        var strip = new StyleBoxFlat { BgColor = backing };
+        strip.SetCornerRadiusAll(8);
+        DrawStyleBox(strip, new Rect2(area.Position.X - 8f, area.End.Y + 6f, Mathf.Max(side + 16f, width + 8f), KeyHeight));
+        var key = area.Position + new Vector2(6f, side + 6f + KeyHeight / 2f + 5f);
+        foreach (var (text, mark) in entries)
+        {
+            mark(key + new Vector2(0f, -5f));
+            DrawString(font, key + new Vector2(12f, 0f), text, fontSize: KeyFont);
+            key.X += EntryWidth(text);
+        }
     }
 
+    /// <summary>Gap between the map and the left and bottom edges of the screen.</summary>
+    private const float Margin = 28f;
+
+    /// <summary>Points round the edge of the round map: enough that it looks smooth.</summary>
+    private const int RimPoints = 96;
+
     /// <summary>Height of the strip under the map that holds the key.</summary>
-    private const float KeyHeight = 44f;
+    private const float KeyHeight = 36f;
+
+    /// <summary>Size of the key's writing.</summary>
+    private const int KeyFont = 14;
 
     private void Dot(Vector2 at, Color colour)
     {

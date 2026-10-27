@@ -67,7 +67,7 @@ Coins and bought animals are saved on your computer. The shop comes up when you 
 | X | Lie down; press again (or move) to get up. Resting gets your breath back faster |
 | Tab | Switch to the next animal you own (woolly mammoth, snow leopard, arctic wolf, sea otter, bald eagle, reindeer, moose or polar bear) |
 | B | Open the animal shop: buy animals with coins, or pick one you own to play as it. B or Esc closes it |
-| M | Show or hide the map of the world, with where you are and every other animal of your kind: wild ones in gold, your own pack, herd or family in green |
+| M | Hide or show the round map in the bottom left corner, which follows you and shows every other animal of your kind nearby: wild ones in gold, your own pack, herd or family in green |
 | Mouse | Look around |
 | Mouse wheel | Zoom camera |
 | Esc / left click | Release / recapture mouse |
@@ -86,6 +86,7 @@ Coins and bought animals are saved on your computer. The shop comes up when you 
 - `scripts/Underwater.cs` — the world under the lakes: a swaying golden kelp forest in the ocean and green waterweed in the small ones, glacial boulders, schools of arctic char that dart away from a diver, and beds of green sea urchins and clams for the otter to eat, which grow back after a while
 - `shaders/weed.gdshader` — sways the kelp and waterweed in the current
 - `scripts/Animal.cs` — base class for playable animals: their 1–10 scores (jump height and length, land and water speed, agility, stamina) and the speeds, jumps, turning and stamina worked out from them, their abilities (climbing, flying, pack, herd), size, diet and camera, how far they are sitting, lying or gone limp in death, and shared mesh-building and posing helpers
+- `scripts/Animal.Floppy.cs` — a dead body as a dead weight: its neck, head, jaw, ears, legs and tail flop under gravity and settle on the ground or water, and carried, it hangs from the hunter's jaws by the scruff (or level in talons), swinging as it goes and dragging when held low
 - `scripts/Mammoth.cs` — builds a giant woolly mammoth in code, half as big again as a real one (body, trunk, tusks, tail, hair), five times as hard to hurt as anything else, and animates it, sitting back on its rump or lying on its side as elephants sleep
 - `scripts/SnowLeopard.cs` — builds the snow leopard in code to real proportions (fur patterned with rosettes and spots, ringed tail, cat face) and animates its walk, gallop, drinking crouch, sitting and sphinx-like lying, and forepaws-first landing when it leaps out of a tree
 - `scripts/ArcticWolf.cs` — builds the arctic wolf in code (white winter coat, neck ruff, bushy tail, a big, cute head with large amber eyes) and animates its walk, gallop, drinking, sitting and lying
@@ -100,8 +101,8 @@ Coins and bought animals are saved on your computer. The shop comes up when you 
 - `scripts/MeshBuilder.cs` — small helper for building meshes in code
 - `shaders/fur.gdshader` — sways the hair strands
 - `shaders/water.gdshader` — rolls the ocean's swell and colours its shallow and deep water (the small lakes lie still, in one plain colour), and puts foam on the crests and along the shore
-- `shaders/fill.gdshader` — fills the HUD icons up like a gauge, greying out what has been used up
-- `icons/` — HUD icons (heart for health, food for hunger (meat for hunters, a leaf for grazers, a clam for the otter), water drop for thirst, paw for stamina, bubble for air), which fill up in place of bars
+- `shaders/fill.gdshader` — fills the HUD icons up like a gauge, greying out what has been used up, and recolours them in gold
+- `icons/` — HUD icons (food for hunger (meat for hunters, a leaf for grazers, a clam for the otter), water drop for thirst, paw for stamina, bubble for air), which fill up in place of bars (health is a bar beneath them; `heart.svg` is no longer used)
 - `scripts/Grassland.cs` — the edible meadow covering the green steppe; eaten grass flattens and regrows
 - `scripts/Player.cs` — movement, jumping, swimming, eating, drinking, sitting and lying down, hunger, thirst and stamina, switching animal, and the camera
 - `scripts/Player.Flying.cs` — flight for animals that fly: take off, flap to climb, glide, dive, bank and land
@@ -119,8 +120,9 @@ Coins and bought animals are saved on your computer. The shop comes up when you 
 - `scripts/Blood.cs` — blood: drops that run from the neck and shoulders of anything bitten or mauled (wild animals and the player alike) and fall to the snow, stretched as they fall, and the ragged, lobed pool, never the same twice, that spreads with spatter round it where an animal falls
 - `scripts/BloodTrail.cs` — the spots of blood those drops leave in the snow, so a wounded animal leaves a trail
 - `scripts/HealthBar.cs` — the health bar floating over every wild animal, facing the camera: green when healthy, yellow when hurt, red when close to falling
-- `scripts/Hud.cs` — current animal name, health, food, water and stamina icons that fill up like gauges (the food one showing what the animal eats), the on-screen action prompt, your coins, messages such as who joined the game, and a warning while wolves are hunting the player
-- `scripts/WorldMap.cs` — the map (M): the whole world painted from the terrain, with an arrow for the player and dots for every other animal of its kind, wild or travelling with it
+- `scripts/Hud.cs` — the on-screen action prompt, the chores, messages such as who joined the game, and a warning while wolves are hunting the player
+- `scripts/NeedsPanel.cs` — the bottom right corner: the animal's name, a big round stamina badge with food, water and air badges round it (gold icons on dark discs whose rims fill up like gauges, the food one showing what the animal eats), the health bar and your coins
+- `scripts/WorldMap.cs` — the round map in the bottom left corner (M hides it): the land round the player, painted from the terrain, following it with north up, an arrow for the player and dots for every other animal of its kind, wild or travelling with it (those out of reach on the rim)
 - `scripts/InputSetup.cs` — key bindings
 - `scripts/StartMenu.cs` — the start menu: your name, and play alone, host a game, or join a friend's by address
 - `scripts/Network.cs` — playing together: hosting and joining, sending your animal to the other players twenty times a second, and carrying bites between players

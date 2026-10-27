@@ -275,7 +275,8 @@ public abstract partial class Animal : Node3D
 
     /// <summary>
     /// 0..1 how far the animal has gone limp in death, eased in as it falls. Its eyes close, it stops stirring, and
-    /// <see cref="Animate"/> lets its joints flop into a dead weight, see <see cref="Limp(float, float)"/>.
+    /// <see cref="Animate"/> lets its joints flop into a dead weight, see <see cref="Limp(float, float)"/>, which
+    /// <see cref="Flop"/> then swings and settles under gravity.
     /// </summary>
     public float Dead
     {
@@ -285,6 +286,8 @@ public abstract partial class Animal : Node3D
             if (value == _dead)
                 return;
             _dead = value;
+            if (value <= 0f)
+                Unflop();
             _eyes ??= FindChildren("*", "", true, false).OfType<Node3D>().Where(n => n.IsInGroup(EyeGroup)).ToList();
             foreach (var eye in _eyes)
                 eye.Scale = new Vector3(1f, Mathf.Lerp(1f, 0.12f, value), 1f);

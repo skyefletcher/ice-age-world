@@ -243,10 +243,10 @@ public partial class Player
             eagle.Clutching = Animal.IsFlying && (_carrying is not null || _lifting is not null);
         if (_carrying is null || Wildlife is null)
             return;
-        var grip = Animal.IsFlying
-            ? Talons
-            : GlobalPosition + Animal.GlobalBasis.Orthonormalized() * new Vector3(0f, Stats.BodyHeight * 0.5f, -Stats.MouthDistance);
-        Wildlife.Hold(_carrying, grip, Animal.GlobalRotation.Y);
+        // On the ground (an eagle too, in its beak) the kill is clamped crosswise in the jaws.
+        var facing = -Animal.GlobalBasis.Z with { Y = 0f };
+        facing = facing.LengthSquared() > 0.0001f ? facing.Normalized() : Vector3.Forward;
+        Wildlife.Hold(_carrying, Animal.IsFlying ? Talons : Animal.Bite, facing, inJaws: !Animal.IsFlying);
     }
 
     /// <summary>Drops whatever the hunter has in its jaws (or an otter in its paws) and ends any pounce, e.g. when switching animal or respawning.</summary>
