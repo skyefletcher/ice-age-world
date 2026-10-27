@@ -13,17 +13,24 @@ namespace IceAgeWorld;
 /// any other wild snow leopard that comes close challenges the mate and they fight to the death. If the mate falls, the
 /// newcomer goes after its cubs one by one, as male big cats do when they take over; the cubs fight back, and any it
 /// fails to kill live on. Then it becomes the new mate, with cubs of its own. All of them fight with the special attack.
+/// Bald eagles pair for life, and court on the wing: a wild eagle of the other sex doesn't drive the player's grown
+/// eagle off its shore but flies up and circles round it, and flying beside it for ten seconds pairs them up. The mate
+/// and their eaglets fly with the player from then on, land when it lands, share its kills and rake anything that
+/// attacks it (see <see cref="Wildlife"/>'s eagles).
 /// </summary>
 public partial class Player
 {
-    /// <summary>The snow leopard's family, while the player is a snow leopard.</summary>
-    public Herd? Family => Animal is SnowLeopard && _herds.TryGetValue(Animal, out var family) ? family : null;
+    /// <summary>The snow leopard's or bald eagle's family, while the player is one.</summary>
+    public Herd? Family => Animal is (SnowLeopard or BaldEagle) && _herds.TryGetValue(Animal, out var family) ? family : null;
 
     /// <summary>Seconds the player's snow leopard must stay beside the wild one to pair up with it.</summary>
     private const float CourtshipSeconds = 10f;
 
     /// <summary>How close, in metres, counts as staying beside it: a few body lengths for these big cats.</summary>
     private const float CourtshipRange = 8f;
+
+    /// <summary>How close counts as flying beside a courting eagle: within the circles it flies round the player's.</summary>
+    private const float EagleCourtshipRange = 14f;
 
     /// <summary>Seconds spent beside the wild snow leopard so far; leaving it starts the count again.</summary>
     private float _courtship;
@@ -37,14 +44,15 @@ public partial class Player
     private void Court(float dt)
     {
         CourtshipPrompt = null;
-        if (Animal is not SnowLeopard || !_herds.TryGetValue(Animal, out var family) || Wildlife is null)
+        if (Animal is not (SnowLeopard or BaldEagle) || !_herds.TryGetValue(Animal, out var family) || Wildlife is null)
         {
             _courtship = 0f;
             return;
         }
+        bool eagle = Animal is BaldEagle;
 
         // Beaten in a fight, the wild snow leopard gives in and pairs up after all.
-        if (Wildlife.BeatenRival() is { } beaten)
+        if (!eagle && Wildlife.BeatenRival() is { } beaten)
         {
             LetGo();
             _courtship = 0f;
@@ -54,7 +62,7 @@ public partial class Player
 
         // A wild one fighting the mate, or two fighting each other over the player's cat: the winner comes to it once
         // the fight is over.
-        if (Wildlife.FightingOverPlayer)
+        if (!eagle && Wildlife.FightingOverPlayer)
         {
             _courtship = 0f;
             CourtshipPrompt = family.HasMate ? "A snow leopard is fighting your mate to the death!"
@@ -63,15 +71,16 @@ public partial class Player
             return;
         }
 
-        // A snow leopard keeps only one mate.
+        // A snow leopard keeps only one mate, and so does an eagle, for life.
         if (family.HasMate)
         {
             _courtship = 0f;
             return;
         }
 
-        // Only one of the other sex will do.
-        if (Wildlife.MateNear(GlobalPosition, CourtshipRange, Sex) is not { } mate)
+        // Only one of the other sex will do. A wild eagle courting the player's flies circles round it, a little
+        // further off than a cat would sit.
+        if (Wildlife.MateNear(GlobalPosition, eagle ? EagleCourtshipRange : CourtshipRange, Sex, Animal.GetType()) is not { } mate)
         {
             _courtship = 0f;
             return;
@@ -85,14 +94,17 @@ public partial class Player
             return;
         }
 
-        if (_mode != Mode.Ground || IsGripping)
+        // Eagles court on the wing, so the player's must be up flying with the wild one; a cat courts on the ground.
+        if (eagle ? _mode != Mode.Flying : (_mode != Mode.Ground || IsGripping))
         {
             _courtship = 0f;
+            if (eagle)
+                CourtshipPrompt = "Fly up beside it to start a family";
             return;
         }
 
-        // Sometimes it wants no mate, and turns on the player's cat instead.
-        if (!Wildlife.WillMate(mate))
+        // Sometimes a snow leopard wants no mate, and turns on the player's cat instead.
+        if (!eagle && !Wildlife.WillMate(mate))
         {
             _courtship = 0f;
             CourtshipPrompt = "It wants to fight! Bite it until it gives in";
@@ -102,7 +114,9 @@ public partial class Player
         _courtship += dt;
         if (_courtship < CourtshipSeconds)
         {
-            CourtshipPrompt = $"Stay close to start a family... {Mathf.CeilToInt(CourtshipSeconds - _courtship)}";
+            CourtshipPrompt = eagle
+                ? $"Fly with it to start a family... {Mathf.CeilToInt(CourtshipSeconds - _courtship)}"
+                : $"Stay close to start a family... {Mathf.CeilToInt(CourtshipSeconds - _courtship)}";
             return;
         }
 
@@ -110,7 +124,7 @@ public partial class Player
         PairUp(family, mate);
     }
 
-    /// <summary>The wild snow leopard leaves the wild to join the player's family, and they have their first cub.</summary>
+    /// <summary>The wild snow leopard or eagle leaves the wild to join the player's family, and they have their first young.</summary>
     private void PairUp(Herd family, Animal mate)
     {
         family.AddMate(Wildlife!.Leave(mate));

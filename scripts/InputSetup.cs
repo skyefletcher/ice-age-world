@@ -24,6 +24,7 @@ public static class InputSetup
     public const string SwitchSex = "switch_sex";
     public const string Map = "map";
     public const string Shop = "shop";
+    public const string Nest = "nest";
 
     public static void Register()
     {
@@ -47,6 +48,8 @@ public static class InputSetup
         Add(Map, Key.M);
         // The animal shop, to buy animals with coins and play as them.
         Add(Shop, Key.B);
+        // A female eagle with a mate builds her nest and lays her eggs.
+        Add(Nest, Key.N);
     }
 
     private static void Add(string action, params Key[] keys) =>

@@ -306,7 +306,7 @@ public partial class Wildlife : Node3D
         public required HealthBar Bar { get; init; }
     }
 
-    private enum Kind { Herd, Pack, Raft, Loner, Hares }
+    private enum Kind { Herd, Pack, Raft, Loner, Hares, Eagle }
 
     private enum Activity { Roaming, Hunting, Feeding, Sleeping }
 
@@ -560,6 +560,8 @@ public partial class Wildlife : Node3D
             loner.Timer = i * SleepSeconds * 0.25f;
             _groups.Add(loner);
         }
+
+        AddEagles();
     }
 
     private Beast Add(Animal animal, Group group, Vector3 slot, float size)
@@ -667,8 +669,11 @@ public partial class Wildlife : Node3D
 
         if (Wound(beast, strength / beast.Bulk))
             return true;
-        // A snow leopard fighting the player's, or its mate, stands its ground rather than running.
-        if (!beast.Group.IsPack && !beast.Group.HuntsPlayer && !beast.Group.ChallengesMate)
+        // An eagle rounds on whatever hit it. A snow leopard fighting the player's, or its mate, stands its ground
+        // rather than running.
+        if (beast.Group.Kind == Kind.Eagle)
+            EagleAttacked(beast, from);
+        else if (!beast.Group.IsPack && !beast.Group.HuntsPlayer && !beast.Group.ChallengesMate)
             Scare(beast.Group, from);
         return beast.IsDead;
     }
@@ -686,7 +691,8 @@ public partial class Wildlife : Node3D
         // Brought down by the player, its pack or the bleeding it left: that counts as a hunt.
         if (wasAlive && beast.IsDead)
             Player?.Hunted();
-        if (beast.Group.Kind == Kind.Loner && beast.Group.HuntsPlayer && beast.Health <= RivalGivesIn)
+        // Only a snow leopard gives in, to pair up with the player's; a bear, lion or smilodon fights to the death.
+        if (beast.Animal is SnowLeopard && beast.Group.Kind == Kind.Loner && beast.Group.HuntsPlayer && beast.Health <= RivalGivesIn)
         {
             beast.Health = RivalGivesIn;
             beast.Group.HuntsPlayer = false;
@@ -709,6 +715,8 @@ public partial class Wildlife : Node3D
             return;
         beast.Bleeding = Mathf.Max(beast.Bleeding, BleedStrength * strength / beast.Bulk);
         Spill(beast);
+        if (beast.Group.Kind == Kind.Eagle)
+            EagleAttacked(beast, Player?.GlobalPosition ?? beast.Body.GlobalPosition);
     }
 
     /// <summary>Blood spurts from a wild animal for a moment, as it does from every bite, maul or wound.</summary>
@@ -815,9 +823,19 @@ public partial class Wildlife : Node3D
             beast.Body.GlobalPosition = spot;
     }
 
+    /// <summary>
+    /// The nearest living wild animal within <paramref name="range"/> of <paramref name="at"/> light enough for a bird
+    /// that can lift <paramref name="maxBulk"/>, if any: what an eagle hunting for its nest goes after.
+    /// </summary>
+    public Animal? QuarryNear(Vector3 at, float range, float maxBulk) =>
+        _beasts.Values
+            .Where(b => CanLift(b.Animal, maxBulk) && b.Body.GlobalPosition.DistanceTo(at) < range)
+            .MinBy(b => b.Body.GlobalPosition.DistanceSquaredTo(at))?.Animal;
+
     /// <summary>Whether a living animal is light enough for a bird that can lift <paramref name="maxBulk"/> to carry off alive.</summary>
     public bool CanLift(Animal prey, float maxBulk) =>
-        _beasts.TryGetValue(prey, out var beast) && !beast.IsDead && !beast.OnTree && beast.Bulk <= maxBulk;
+        _beasts.TryGetValue(prey, out var beast) && !beast.IsDead && !beast.OnTree && beast.Bulk <= maxBulk
+        && beast.Group.Kind != Kind.Eagle;
 
     /// <summary>
     /// A bird has a living animal in its talons at <paramref name="talons"/>; call every frame while carrying it, and
@@ -866,6 +884,7 @@ public partial class Wildlife : Node3D
         float dt = (float)delta;
         _time += dt;
         WatchForSquabbles(dt);
+        WatchNest(dt);
 
         foreach (var group in _groups)
         {
@@ -877,6 +896,9 @@ public partial class Wildlife : Node3D
                 case Kind.Herd:
                 case Kind.Hares:
                     ThinkHerd(group, dt);
+                    break;
+                case Kind.Eagle:
+                    ThinkEagle(group, dt);
                     break;
                 case Kind.Raft:
                     ThinkRaft(group, dt);
@@ -1593,6 +1615,7 @@ public partial class Wildlife : Node3D
         beast.Animal.Sitting = beast.Animal.Lying = 0f;
         beast.Animal.Dead = 0f;
         beast.Animal.Rotation = new Vector3(0f, beast.Yaw, 0f);
+        EagleReborn(beast);
 
         // Any pack or bear still dozing by the old carcass has nothing left to come back to.
         foreach (var hunters in _groups)
@@ -1643,6 +1666,9 @@ public partial class Wildlife : Node3D
             if (beast.OnTree)
                 FallFromTree(beast);
             beast.LiftedAt = null;
+            // A bird killed on the wing folds up and drops.
+            beast.Animal.IsFlying = false;
+            beast.Animal.Flap = beast.Animal.Dive = 0f;
             Lie(beast, dt);
             return;
         }
@@ -1651,9 +1677,16 @@ public partial class Wildlife : Node3D
             Dangle(beast, talons, dt);
             return;
         }
+        if (MoveRaider(beast, dt))
+            return;
         if (beast.OnTree)
         {
             ClimbTree(beast, dt);
+            return;
+        }
+        if (group.Kind == Kind.Eagle)
+        {
+            MoveEagle(beast, dt);
             return;
         }
 
@@ -1998,12 +2031,14 @@ public partial class Wildlife : Node3D
     public float SizeOf(Animal animal) => _beasts.TryGetValue(animal, out var beast) ? beast.Size : 1f;
 
     /// <summary>
-    /// The wild snow leopard within <paramref name="range"/> of <paramref name="at"/>, alive and on the ground, if there
-    /// is one and it isn't of the player's <paramref name="sex"/>: a mate for the player's snow leopard.
+    /// The wild animal of the player's <paramref name="kind"/> within <paramref name="range"/> of <paramref name="at"/>,
+    /// alive, if there is one and it isn't of the player's <paramref name="sex"/>: a mate for the player's snow leopard,
+    /// on the ground, or for the player's eagle, courting it on the wing.
     /// </summary>
-    public Animal? MateNear(Vector3 at, float range, Sex sex) =>
-        _groups.Where(g => g.Kind == Kind.Loner && g.Rival is null).SelectMany(g => g.Members)
-            .FirstOrDefault(c => c.Animal is SnowLeopard && c.Animal.Sex != sex && !c.IsDead && !c.OnTree
+    public Animal? MateNear(Vector3 at, float range, Sex sex, System.Type kind) =>
+        _groups.Where(g => (g.Kind == Kind.Loner && g.Rival is null) || g.Kind == Kind.Eagle).SelectMany(g => g.Members)
+            .FirstOrDefault(c => c.Animal.GetType() == kind && c.Animal.Sex != sex && !c.IsDead && !c.OnTree
+                && (!_flights.TryGetValue(c, out var flight) || flight.Courting)
                 && c.Body.GlobalPosition.DistanceTo(at) < range)
             ?.Animal;
 
@@ -2119,7 +2154,8 @@ public partial class Wildlife : Node3D
 
     /// <summary>A wild snow leopard the player's has beaten in a fight, ready to pair up with it, if there is one.</summary>
     public Animal? BeatenRival() =>
-        _groups.FirstOrDefault(g => g.Kind == Kind.Loner && g.Beaten)?.Members.FirstOrDefault(c => !c.IsDead)?.Animal;
+        _groups.Where(g => g.Kind == Kind.Loner && g.Beaten).SelectMany(g => g.Members)
+            .FirstOrDefault(c => c.Animal is SnowLeopard && !c.IsDead)?.Animal;
 
     /// <summary>
     /// A wild animal leaves the wild for good to travel with the player, e.g. a snow leopard pairing up with the
@@ -2129,6 +2165,7 @@ public partial class Wildlife : Node3D
     {
         var beast = _beasts[animal];
         _beasts.Remove(animal);
+        _flights.Remove(beast);
         beast.Group.Members.Remove(beast);
         if (beast.Group.Members.Count == 0)
             _groups.Remove(beast.Group);

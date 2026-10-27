@@ -21,6 +21,7 @@ public partial class AnimalShop : ColorRect
     private Label _coins = null!;
     private Button _close = null!;
     private readonly List<Button> _buttons = [];
+    private readonly Dictionary<Sex, Button> _sexes = [];
     private Action<int>? _chosen;
 
     private static readonly Color Gold = new(1f, 0.85f, 0.3f);
@@ -46,6 +47,21 @@ public partial class AnimalShop : ColorRect
         _coins = Hud.Text("", 26);
         _coins.AddThemeColorOverride("font_color", Gold);
         column.AddChild(_coins);
+
+        // Male or female, chosen before the animal: in most kinds the female is smaller, and only one of the other sex
+        // will pair up with you. V switches during play too.
+        var sexes = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+        sexes.AddThemeConstantOverride("separation", 12);
+        column.AddChild(sexes);
+        var group = new ButtonGroup();
+        foreach (var sex in new[] { Sex.Male, Sex.Female })
+        {
+            var button = new Button { Text = sex.ToString(), ToggleMode = true, ButtonGroup = group, CustomMinimumSize = new Vector2(140, 44) };
+            button.AddThemeFontSizeOverride("font_size", 19);
+            button.Pressed += () => Player!.BecomeSex(sex);
+            sexes.AddChild(button);
+            _sexes[sex] = button;
+        }
 
         // A button for each animal, wrapping onto a second row when there are too many for one.
         var buttons = new HFlowContainer { Alignment = FlowContainer.AlignmentMode.Center, CustomMinimumSize = new Vector2(760, 0) };
@@ -120,6 +136,8 @@ public partial class AnimalShop : ColorRect
     private void Refresh()
     {
         _coins.Text = $"Coins: {Wallet.Coins}";
+        foreach (var (sex, button) in _sexes)
+            button.SetPressedNoSignal(Player!.Sex == sex);
         for (int i = 0; i < _buttons.Count; i++)
         {
             var animal = Player!.Animals[i];

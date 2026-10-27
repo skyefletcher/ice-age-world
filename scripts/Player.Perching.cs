@@ -60,6 +60,13 @@ public partial class Player
         return false;
     }
 
+    /// <summary>
+    /// The tree the player is up, on a branch or at the top, and which branch it's on (-1 at the top), if it's in a
+    /// tree at all; its family perch on the other branches round it.
+    /// </summary>
+    public (Tree Tree, int Branch)? PerchedIn =>
+        _mode is Mode.Treetop or Mode.Branch ? (_tree, _mode == Mode.Branch ? _branch : -1) : null;
+
     /// <summary>Folds the wings and settles on the branch, facing whichever way along it is nearer the way it flew in.</summary>
     private void Perch(Tree tree, int branch, float along)
     {

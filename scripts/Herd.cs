@@ -15,6 +15,7 @@ namespace IceAgeWorld;
 /// eats from a kill, the pack crowds round and eats with it. A snow leopard's family (a mate and their cub) hunts and
 /// feeds with the leader the same way, and whenever a cub grows up, another is born. A wild snow leopard may challenge
 /// the mate for its place and fight it to the death; if the mate falls, the cubs fight the newcomer for their lives.
+/// A bald eagle's family (a mate and their eaglets) flies with the leader instead, and lands beside it when it lands.
 /// </summary>
 public partial class Herd : Node3D
 {
@@ -27,12 +28,21 @@ public partial class Herd : Node3D
     public int Count { get; init; }
 
     /// <summary>
-    /// True for a snow leopard's family, which starts empty, until the leader finds a mate, and has a new cub each time
-    /// the last one grows up, up to <see cref="MaxCubs"/>.
+    /// True for a snow leopard's or bald eagle's family, which starts empty, until the leader finds a mate, and has a new
+    /// cub or eaglet each time the last one grows up, up to <see cref="MaxCubs"/>.
     /// </summary>
     public bool IsFamily { get; init; }
 
-    /// <summary>The most cubs a family has, mate and leader not counted: a snow leopard litter is usually two or three.</summary>
+    /// <summary>
+    /// True for a bald eagle's family, whose young hatch from the eggs in the nest (see <see cref="Player"/>'s
+    /// HatchEggs) instead of being born one after another as the last grows up.
+    /// </summary>
+    public bool LaysEggs { get; init; }
+
+    /// <summary>
+    /// The most cubs a family has, mate and leader not counted: a snow leopard litter is usually two or three, and a
+    /// bald eagle's nest holds one to three eaglets.
+    /// </summary>
     private const int MaxCubs = 3;
 
     /// <summary>Seconds a dead mate or cub lies where it fell before it is gone.</summary>
@@ -55,6 +65,9 @@ public partial class Herd : Node3D
     /// both ways are dealt by <see cref="Wildlife"/>.
     /// </summary>
     public Vector3? ChallengerAt { get; set; }
+
+    /// <summary>What an eagle's mate is doing to feed its brooding partner, for the screen, or null when nothing.</summary>
+    public string? Errand { get; private set; }
 
     /// <summary>Where each companion is.</summary>
     public IEnumerable<Vector3> Positions => _members.Select(m => m.Body.GlobalPosition);
@@ -85,6 +98,15 @@ public partial class Herd : Node3D
 
         /// <summary>True for a snow leopard's mate; everyone else in a family is a cub.</summary>
         public bool IsMate;
+
+        /// <summary>
+        /// An eagle's mate hunting for its brooding partner: what it's after, what it's carrying home, the last catch it
+        /// brought, and seconds left resting before it goes out again.
+        /// </summary>
+        public Animal? Quarry;
+        public Animal? Bringing;
+        public Animal? Delivered;
+        public float ErrandRest;
 
         /// <summary>True while it has leapt on a wild snow leopard fighting the family and clamped its jaws on it.</summary>
         public bool Latched;
@@ -130,6 +152,12 @@ public partial class Herd : Node3D
     private const float FightBiteStrength = 8f;
 
     /// <summary>
+    /// How hard a family eagle's talons rake whatever it's attacking, per second it's within reach, against the leader's
+    /// single strikes: a raking eagle does about what a biting wolf does.
+    /// </summary>
+    private const float TalonRakeStrength = 4f;
+
+    /// <summary>
     /// The pack gives up on its prey this many seconds after the leader last went for it, or once the leader is this
     /// far from it, so they don't chase on alone.
     /// </summary>
@@ -158,6 +186,10 @@ public partial class Herd : Node3D
     private const float YoungSize = 0.55f;
     private const float GrowUpSeconds = 120f;
     private bool _isHerd;
+    private bool _flies;
+
+    /// <summary>True while the family is fighting off a raider at the nest, wherever the leader is.</summary>
+    private bool _guarding;
     private float _spacing;
     private float _time;
 
@@ -188,6 +220,7 @@ public partial class Herd : Node3D
     private void Fit(Animal animal)
     {
         _isHerd = animal.Stats.Can(Ability.Herd);
+        _flies = animal is Bird;
         // A pack keeps tight about its leader, close enough to touch; a herd spreads out more.
         _spacing = animal.Stats.BodyRadius * 2f + (_isHerd ? 2.5f : 0.6f);
     }
@@ -213,13 +246,17 @@ public partial class Herd : Node3D
         return index < crowd.Length ? crowd[index] : new Vector3((index % 2 - 0.5f) * 2f, 0f, index * 0.6f);
     }
 
-    /// <summary>A grown snow leopard joins the family as a mate, walking up from <paramref name="at"/>, and they have a cub.</summary>
+    /// <summary>
+    /// A grown snow leopard or eagle joins the family as a mate, coming from <paramref name="at"/>, and they have a cub
+    /// or an eaglet.
+    /// </summary>
     public void AddMate(Vector3 at)
     {
         Recruit(1f, at);
         _members[^1].IsMate = true;
         MateWith(Leader.Sex);
-        Recruit();
+        if (!LaysEggs)
+            Recruit();
     }
 
     /// <summary>Makes the family's mate, if it has one, the other sex from a leader of <paramref name="sex"/>.</summary>
@@ -276,11 +313,26 @@ public partial class Herd : Node3D
         var member = new Member { Body = body, Animal = animal, Slot = SlotFor(_members.Count) * _spacing, Size = size };
         float yaw = Leader.Animal.Rotation.Y;
         var spot = at ?? Leader.GlobalPosition + member.Slot.Rotated(Vector3.Up, yaw);
-        spot.Y = Leader.Terrain?.GroundBelow(spot with { Y = Leader.GlobalPosition.Y }) ?? Leader.GlobalPosition.Y;
+        // An eagle mate joins in the air, where it was courting; anything else, and every youngster, starts on the ground.
+        if (!(_flies && at.HasValue))
+            spot.Y = Leader.Terrain?.GroundBelow(spot with { Y = Leader.GlobalPosition.Y }) ?? Leader.GlobalPosition.Y;
         body.GlobalPosition = spot;
         member.Yaw = yaw;
         animal.Rotation = new Vector3(0f, yaw, 0f);
         _members.Add(member);
+    }
+
+    /// <summary>
+    /// Something is raiding the leader's nest: the family goes for it and keeps at it however far the leader is, until
+    /// it's driven off.
+    /// </summary>
+    public void Defend(Animal raider)
+    {
+        if (!Any)
+            return;
+        Target = raider;
+        _sinceOrder = 0f;
+        _guarding = true;
     }
 
     /// <summary>
@@ -294,6 +346,7 @@ public partial class Herd : Node3D
         bool joining = Target != prey;
         Target = prey;
         _sinceOrder = 0f;
+        _guarding = false;
         return joining;
     }
 
@@ -337,7 +390,13 @@ public partial class Herd : Node3D
         if (!IsVisibleInTree())
         {
             foreach (var member in _members)
+            {
                 LetGo(member);
+                if (member.Bringing is { } food)
+                    Leader.Wildlife?.Drop(food);
+                member.Bringing = member.Quarry = null;
+            }
+            Errand = null;
             return;
         }
 
@@ -349,11 +408,18 @@ public partial class Herd : Node3D
         {
             _sinceOrder += dt;
             if (Leader.Wildlife?.IsAlive(prey) != true || Leader.IsDead || _sinceOrder > AttackPatience
-                || Leader.GlobalPosition.DistanceTo(prey.GlobalPosition) > AttackLeash)
+                || (_guarding && Leader.Wildlife?.NestRaider != prey)
+                || (!_guarding && Leader.GlobalPosition.DistanceTo(prey.GlobalPosition) > AttackLeash))
                 Target = null;
-            _preySpeed = _sinceOrder > dt ? ((prey.GlobalPosition - _preyWas) with { Y = 0f }).Length() / dt : 0f;
-            _preyWas = prey.GlobalPosition;
+            // A carcass that has rotted away is freed, so once the hunt is off it mustn't be looked at again.
+            else
+            {
+                _preySpeed = _sinceOrder > dt ? ((prey.GlobalPosition - _preyWas) with { Y = 0f }).Length() / dt : 0f;
+                _preyWas = prey.GlobalPosition;
+            }
         }
+        if (Target is null)
+            _guarding = false;
 
         // The kill is eaten, the leader has walked off, or a new hunt is on: the meal is over.
         if (Meal is { } meal && (Leader.Wildlife?.HasMeat(meal) != true || Leader.IsDead || Target is not null
@@ -367,6 +433,7 @@ public partial class Herd : Node3D
             _members.Remove(dead);
         }
 
+        Errand = null;
         for (int i = 0; i < _members.Count; i++)
             Move(_members[i], i, dt);
     }
@@ -400,8 +467,13 @@ public partial class Herd : Node3D
         {
             member.Size = Mathf.Min(1f, member.Size + (1f - YoungSize) / GrowUpSeconds * dt);
             member.Body.Scale = Vector3.One * member.Size;
-            if (member.Size >= 1f && IsFamily && HasMate && _members.Count(m => !m.IsMate && !m.IsDead) < MaxCubs)
+            if (member.Size >= 1f && IsFamily && !LaysEggs && HasMate && _members.Count(m => !m.IsMate && !m.IsDead) < MaxCubs)
                 Recruit();
+        }
+        if (_flies)
+        {
+            Fly(member, index, dt);
+            return;
         }
         var position = member.Body.GlobalPosition;
 
@@ -644,5 +716,285 @@ public partial class Herd : Node3D
         float period = 3.5f + member.Slot.Length() % 2f;
         member.GrazeTimer = (member.GrazeTimer + dt) % period;
         return member.GrazeTimer < 1.4f ? Mathf.Min(1f, Mathf.Sin(member.GrazeTimer / 1.4f * Mathf.Pi) * 1.6f) : 0f;
+    }
+
+    /// <summary>
+    /// An eagle's mate and eaglets fly with it, spread out behind and to either side as birds flying together keep
+    /// clear of each other's wings, rising and falling a little out of step. When the leader comes down they glide in
+    /// and land beside it, and stand about on the ground with it; they share its kills there. Anything the leader goes
+    /// for, or anything that goes for the leader, they stoop at and rake with their talons, in the air or on the ground.
+    /// </summary>
+    private void Fly(Member member, int index, float dt)
+    {
+        var animal = member.Animal;
+        var stats = animal.Stats;
+        var wildlife = Leader.Wildlife;
+        float leaderYaw = Leader.Animal.Rotation.Y;
+        bool aloft = Leader.Animal.IsFlying;
+        var position = member.Body.GlobalPosition;
+
+        var slot = member.Slot * (aloft ? 2.5f : 1f)
+            + new Vector3(Mathf.Sin(_time * 0.4f + index * 2f), 0f, Mathf.Cos(_time * 0.35f + index * 3f)) * _spacing * 0.3f;
+        var target = Leader.GlobalPosition + slot.Rotated(Vector3.Up, leaderYaw);
+        if (aloft)
+            target.Y += Mathf.Sin(_time * 0.5f + index * 1.3f) * 0.8f;
+        else
+            target.Y = Footing(target);
+
+        float eat = 0f;
+        bool reaching = false;
+        Vector3? faceAt = null;
+        if (Target is { } prey && wildlife is not null)
+        {
+            // Straight at it, talons out, raking it while within reach.
+            target = prey.GlobalPosition + Vector3.Up * prey.Stats.BodyHeight * wildlife.SizeOf(prey) * 0.5f;
+            float reach = prey.Stats.BodyRadius * wildlife.SizeOf(prey) + stats.BodyRadius * member.Size + 1.2f;
+            reaching = position.DistanceTo(target) < reach + 6f;
+            if (position.DistanceTo(target) < reach)
+                wildlife.Bite(prey, TalonRakeStrength * member.Size * member.Size * dt, position);
+        }
+        else if (!aloft && Meal is { } meal && wildlife is not null)
+        {
+            // Round the kill with the leader, tearing at it.
+            float ring = meal.Stats.BodyRadius * wildlife.SizeOf(meal) + stats.BodyRadius * member.Size + 0.2f;
+            float angle = (index + 1) * Mathf.Tau / (_members.Count + 1) + leaderYaw;
+            target = meal.GlobalPosition + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * ring;
+            target.Y = Footing(target);
+            if (((position - meal.GlobalPosition) with { Y = 0f }).Length() < ring + 0.6f)
+            {
+                wildlife.EatFrom(meal, PackMealShare * member.Size * dt);
+                eat = 0.75f + 0.25f * Mathf.Sin(_time * 7f + index * 1.7f);
+                faceAt = meal.GlobalPosition;
+            }
+        }
+
+        // Up a tree with the leader, each takes a branch of its own and flies in to sit on it.
+        Vector3? seat = null;
+        if (!aloft && Target is null && Meal is null && Leader.PerchedIn is { } perch)
+            seat = BranchFor(perch.Tree, perch.Branch, index);
+        if (seat is { } branch)
+            target = branch;
+
+        // The mate of a brooding eagle hunts for her, and brings what it catches back to the nest.
+        bool errand = false;
+        if (member.IsMate && RunErrand(member, position, dt) is { } goal)
+        {
+            target = goal;
+            seat = null;
+            errand = true;
+            reaching = member.Quarry is not null && position.DistanceTo(goal) < 8f;
+        }
+        bool chasing = Target is not null || member.Quarry is not null;
+
+        // Too far behind to catch up (e.g. the leader respawned): turn up at its place.
+        var toward = target - position;
+        float flatGap = (toward with { Y = 0f }).Length();
+        if (flatGap > 120f && Target is null && !errand)
+        {
+            Gather();
+            return;
+        }
+
+        // On the ground, a short way is walked; anything further is flown, in a low hop over the ground. Up a tree, it
+        // flies until it's on its branch.
+        float floor = Footing(position);
+        bool flying = seat.HasValue ? position.DistanceTo(seat.Value) > 0.4f
+            : errand || aloft || Target is not null || position.Y - floor > 0.3f || flatGap > 6f;
+        if (flying && !aloft && Target is null && !errand && flatGap > 3f)
+            target.Y += Mathf.Min(flatGap * 0.3f, 6f);
+        toward = target - position;
+        float gap = toward.Length();
+
+        // Keep pace with the leader, and fly flat out to catch up when well behind, or when after something; on foot,
+        // walk.
+        float leaderSpeed = Leader.Velocity.Length();
+        float top = flying ? stats.FlySpeed * 1.3f : stats.WalkSpeed;
+        float speed = gap < 0.3f ? 0f : Mathf.Min(top, Mathf.Max(0f, gap - 0.3f) * 1.5f + (chasing ? stats.FlySpeed : leaderSpeed));
+        var wanted = gap > 0.01f ? toward / gap * speed : Vector3.Zero;
+
+        // Keep a wingspan from the others.
+        foreach (var other in _members)
+        {
+            if (other == member)
+                continue;
+            var away = position - other.Body.GlobalPosition;
+            float apart = away.Length();
+            float room = _spacing * (flying ? 1.2f : 0.7f);
+            if (apart < room && apart > 0.001f)
+                wanted += away / apart * (room - apart) * 3f;
+        }
+
+        member.Velocity = member.Velocity.Lerp(wanted, Mathf.Min(1f, (flying ? 3f : stats.Acceleration) * dt));
+        position += member.Velocity * dt;
+        floor = Footing(position);
+        if (seat is { } sitting && !flying)
+        {
+            position = sitting;
+            member.Velocity = Vector3.Zero;
+        }
+        else if (position.Y < floor || !flying)
+        {
+            position.Y = floor;
+            member.Velocity.Y = Mathf.Max(member.Velocity.Y, 0f);
+        }
+        member.Body.GlobalPosition = position;
+
+        // Tip and bank with the flight, flapping when climbing or slow and gliding otherwise, as the wild ones do; on
+        // the ground, stand level and face the way it's walking, or what it's eating.
+        var level = member.Velocity with { Y = 0f };
+        float flat = level.Length();
+        float before = member.Yaw;
+        float facing = flat > 0.3f ? Mathf.Atan2(-level.X, -level.Z) : leaderYaw;
+        if (faceAt is { } at)
+            facing = Mathf.Atan2(-(at - position).X, -(at - position).Z);
+        member.Yaw = Mathf.LerpAngle(member.Yaw, facing, Mathf.Min(1f, (flat > 0.3f || eat > 0f ? 4f : 0.5f) * dt));
+        float smooth = Mathf.Min(1f, 6f * dt);
+        var rotation = animal.Rotation;
+        float bank = 0f, pitch = 0f;
+        if (flying)
+        {
+            float turn = Mathf.AngleDifference(before, member.Yaw) / Mathf.Max(dt, 0.001f);
+            bank = Mathf.Clamp(turn * 0.35f, -0.9f, 0.9f);
+            pitch = Mathf.Clamp(member.Velocity.Y / Mathf.Max(flat, 1f), -0.9f, 0.5f);
+        }
+        animal.Rotation = new Vector3(Mathf.Lerp(rotation.X, pitch, smooth), member.Yaw, Mathf.Lerp(rotation.Z, bank, smooth));
+        animal.IsFlying = flying;
+        animal.IsSwimming = false;
+        bool flapping = flying && (member.Velocity.Y > 0.8f || flat < stats.FlySpeed * 0.45f);
+        animal.Flap = Mathf.MoveToward(animal.Flap, flapping ? 1f : 0f, 4f * dt);
+        animal.Dive = Mathf.MoveToward(animal.Dive, flying && member.Velocity.Y < -4f ? 1f : 0f, 3f * dt);
+        if (animal is Bird bird)
+            bird.Clutching = reaching;
+        animal.Settle(Posture.Standing, Leader.PostureChangeSeconds, dt);
+        animal.Animate(flat, flying ? 0f : Mathf.Clamp(flat / stats.WalkSpeed, 0f, 1f), eat, dt);
+    }
+
+    /// <summary>
+    /// Where the member at <paramref name="index"/> sits in <paramref name="tree"/>: on the branch nearest the leader,
+    /// other than the leader's own (<paramref name="taken"/>), the next nearest for the next member, and so on,
+    /// two to a branch, one further out than the other, if there are more of them than branches.
+    /// </summary>
+    private Vector3? BranchFor(Tree tree, int taken, int index)
+    {
+        var branches = Enumerable.Range(0, tree.Branches.Count).Where(b => b != taken)
+            .OrderBy(b => tree.BranchTopAt(b, 0.6f).DistanceSquaredTo(Leader.GlobalPosition)).ToList();
+        if (branches.Count == 0)
+            return null;
+        float along = index / branches.Count % 2 == 0 ? 0.6f : 0.85f;
+        return tree.BranchTopAt(branches[index % branches.Count], along);
+    }
+
+    /// <summary>The height of the ground, or of the water where there is any, below a point.</summary>
+    private float Below(Vector3 at) =>
+        Mathf.Max(Leader.Terrain?.GroundBelow(at) ?? at.Y, Leader.Water?.SurfaceAt(at) ?? float.MinValue);
+
+    /// <summary>Where a bird stands below a point: on top of the eagle's nest where that is, or else the ground or water.</summary>
+    private float Footing(Vector3 at)
+    {
+        float below = Below(at);
+        if (Leader.EagleNest is { } nest && ((at - nest.Cup) with { Y = 0f }).Length() < nest.Radius && at.Y > nest.Cup.Y - 1f)
+            return Mathf.Max(below, nest.Cup.Y);
+        return below;
+    }
+
+    /// <summary>How far an eagle hunting for its brooding mate goes looking for something to catch.</summary>
+    private const float HuntRange = 250f;
+
+    /// <summary>
+    /// How heavy a catch an eagle can carry home, for its size, as the player's eagle can (see
+    /// <see cref="Player.LiftStrength"/>): a hare, not a reindeer calf.
+    /// </summary>
+    private const float MateLiftStrength = 0.4f;
+
+    /// <summary>Seconds the mate rests at the nest after bringing food, or after finding nothing to hunt, before going out again.</summary>
+    private const float ErrandRestSeconds = 40f;
+
+    /// <summary>
+    /// What an eagle's mate is doing for its brooding partner, as the male does for the female sitting on their eggs:
+    /// it flies off and hunts the nearest thing light enough to carry, strikes it dead, carries it back in its talons
+    /// and lays it down on the nest beside her for her to eat, then rests a while before going out again, once she
+    /// has eaten it. Once it has a catch in its talons it brings it home even if she has got up. Returns where it's
+    /// flying to, or null when it has no errand and keeps with the family as usual.
+    /// </summary>
+    private Vector3? RunErrand(Member mate, Vector3 position, float dt)
+    {
+        var wildlife = Leader.Wildlife;
+        if (wildlife is null)
+            return null;
+        mate.ErrandRest = Mathf.Max(0f, mate.ErrandRest - dt);
+        var bird = mate.Animal as Bird;
+        var talons = bird?.Talons ?? position;
+
+        if (mate.Bringing is { } food)
+        {
+            if (!wildlife.HasMeat(food) || Leader.EagleNest is not { } home)
+            {
+                if (wildlife.HasMeat(food))
+                    wildlife.Drop(food);
+                mate.Bringing = null;
+                return null;
+            }
+            var heading = mate.Velocity with { Y = 0f };
+            wildlife.Hold(food, talons, heading.LengthSquared() > 0.01f ? heading.Normalized() : Vector3.Forward, inJaws: false);
+
+            // Down on the nest beside her, a little out from where she lies.
+            var beside = Vector3.Right.Rotated(Vector3.Up, Leader.Animal.Rotation.Y) * Mathf.Min(1.4f, home.Radius * 0.55f);
+            var spot = home.Cup + beside;
+            var above = spot + Vector3.Up * (position - talons).Y;
+            if (position.DistanceTo(above) < 0.8f)
+            {
+                wildlife.Drop(food, lodged: spot);
+                mate.Delivered = food;
+                mate.Bringing = null;
+                mate.ErrandRest = ErrandRestSeconds;
+                return null;
+            }
+            Errand = "Your mate is bringing you food";
+            return above;
+        }
+
+        // She's still eating what it brought last time, or she's up and about: no hunting.
+        if (Leader.Brooding is null || Target is not null)
+        {
+            mate.Quarry = null;
+            return null;
+        }
+        if (mate.Delivered is { } last && wildlife.HasMeat(last))
+        {
+            Errand = "Your mate brought you food: press E to eat it";
+            return null;
+        }
+
+        if (mate.Quarry is { } prey)
+        {
+            if (!wildlife.IsAlive(prey) || prey.GlobalPosition.DistanceTo(Leader.GlobalPosition) > HuntRange * 1.5f)
+            {
+                mate.Quarry = null;
+                return null;
+            }
+            // A stoop at it from above, talons first, and a single strike kills it.
+            var at = prey.GlobalPosition + Vector3.Up * prey.Stats.BodyHeight * wildlife.SizeOf(prey) * 0.5f;
+            float reach = prey.Stats.BodyRadius * wildlife.SizeOf(prey) + mate.Animal.Stats.BodyRadius + 1f;
+            if (talons.DistanceTo(at) < reach || position.DistanceTo(at) < reach)
+            {
+                wildlife.Bite(prey, 1000f, position);
+                if (!wildlife.IsAlive(prey))
+                {
+                    mate.Quarry = null;
+                    mate.Bringing = prey;
+                    return null;
+                }
+            }
+            Errand = "Your mate is out hunting for you";
+            return at;
+        }
+
+        if (mate.ErrandRest > 0f)
+            return null;
+        var stats = mate.Animal.Stats;
+        mate.Quarry = wildlife.QuarryNear(Leader.GlobalPosition, HuntRange, stats.BodyRadius * stats.BodyHeight * MateLiftStrength);
+        if (mate.Quarry is null)
+            mate.ErrandRest = ErrandRestSeconds / 4f;
+        return null;
     }
 }
