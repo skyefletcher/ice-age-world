@@ -185,8 +185,10 @@ public partial class Player
     }
 
     /// <summary>Fraction of the way along a branch where it comes out of the bark, so the walker starts clear of the trunk.</summary>
-    private float BranchStart(int branch) =>
-        Mathf.Min(0.4f, (_tree.RadiusAt(_tree.BranchHeight(branch)) + 0.15f) / _tree.BranchLength(branch));
+    private float BranchStart(int branch) => BranchStart(_tree, branch);
+
+    private static float BranchStart(Tree tree, int branch) =>
+        Mathf.Min(0.4f, (tree.RadiusAt(tree.BranchHeight(branch)) + 0.15f) / tree.BranchLength(branch));
 
     private void StepOntoBranch(int branch)
     {
@@ -229,12 +231,17 @@ public partial class Player
         var direction = _tree.BranchDirection(_branch);
         if (!resting && !IsFeeding && Input.IsActionJustPressed(InputSetup.Jump))
         {
-            LeapOff(_facingOut ? direction : -direction, Stats.JumpBoost);
+            // A bird perched here flies off the way it faces; anything else leaps.
+            if (Stats.Can(Ability.Fly))
+                TakeOff(Forward(Animal.Rotation.Y));
+            else
+                LeapOff(_facingOut ? direction : -direction, Stats.JumpBoost);
             return;
         }
 
-        // Back at the trunk, grab hold of it again just where the branch grows out.
-        if (_along <= start && wanted < 0f)
+        // Back at the trunk, a climber grabs hold of it again just where the branch grows out. A bird can't climb, so
+        // it just stops there.
+        if (_along <= start && wanted < 0f && Stats.Can(Ability.ClimbTrees))
         {
             _mode = Mode.Climbing;
             _climbAngle = Mathf.Atan2(direction.Z, direction.X);

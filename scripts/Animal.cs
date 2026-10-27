@@ -51,6 +51,12 @@ public enum Ability
     Dive = 64,
 }
 
+/// <summary>Whether an animal is a male or a female.</summary>
+public enum Sex { Male, Female }
+
+/// <summary>What an animal is feeding on, which changes how it goes about it.</summary>
+public enum Food { Grass, Water, Meat }
+
 /// <summary>How an animal is resting, if at all.</summary>
 public enum Posture { Standing, Sitting, Lying }
 
@@ -107,11 +113,16 @@ public sealed record AnimalStats
     /// leader over it. Its body, reach and camera scale with it. A youngster also moves at a slower
     /// <see cref="Pace"/>, halfway to a grown animal's at birth; a big leader is no faster for its size.
     /// </summary>
-    public AnimalStats GrownTo(float size)
+    /// <param name="grown">
+    /// How far it has grown by age alone, which is all that sets its pace: a grown female, smaller than the males, is no
+    /// slower for it. The same as <paramref name="size"/> unless given.
+    /// </param>
+    public AnimalStats GrownTo(float size, float? grown = null)
     {
         if (size == 1f)
             return this;
-        float pace = size < 1f ? 0.5f + 0.5f * size : 1f;
+        float youth = grown ?? size;
+        float pace = youth < 1f ? 0.5f + 0.5f * youth : 1f;
         return this with
         {
             Pace = pace,
@@ -163,6 +174,12 @@ public sealed record AnimalStats
         Can(Ability.ClimbTrees) || Can(Ability.Fly) ? 0f : 100f * Mathf.Clamp((height - SafeDrop) / (SafeDrop * 3f), 0f, 1f);
 
     private static float TurnSpeedFor(int agility) => 1.5f + agility * 0.85f;
+
+    /// <summary>
+    /// Seconds a diver (<see cref="Ability.Dive"/>) can stay under water on one breath. It goes down from the surface
+    /// and must come back up before this runs out.
+    /// </summary>
+    public float BreathSeconds { get; init; }
 
     /// <summary>How far below the water surface the animal's feet hang while it floats.</summary>
     public required float FloatDepth { get; init; }
@@ -217,14 +234,73 @@ public abstract partial class Animal : Node3D
         get => _growth;
         set
         {
-            _grownScale ??= Scale;
             _growth = value;
-            Scale = _grownScale.Value * value;
+            Rescale();
         }
     }
 
     private float _growth = 1f;
     private Vector3? _grownScale;
+
+    /// <summary>
+    /// Whether the animal is a male or a female. A female grows to <see cref="FemaleSize"/> of a male's size, and only
+    /// males grow the parts marked with <see cref="ForMales{T}"/>, or grow them bigger. Set once the model is built.
+    /// </summary>
+    public Sex Sex
+    {
+        get => _sex;
+        set
+        {
+            _sex = value;
+            Rescale();
+        }
+    }
+
+    private Sex _sex;
+
+    /// <summary>
+    /// Parts a male grows bigger than a female, with the share of his size she grows them to (0 if not at all), and the
+    /// <see cref="Growth"/> he grows them at.
+    /// </summary>
+    private readonly List<MalePart> _maleParts = [];
+
+    private readonly record struct MalePart(Node3D Part, Vector3 MaleScale, float FemaleSize, float GrownAt);
+
+    /// <summary>
+    /// How big a female grows compared with a male, along each dimension. In most of these animals the males are the
+    /// bigger, but a female eagle outgrows her mate, and a female hyena hers.
+    /// </summary>
+    protected virtual float FemaleSize => 1f;
+
+    /// <summary>How big the animal is for its sex, compared with a male of its kind.</summary>
+    public float SexSize => Sex == Sex.Female ? FemaleSize : 1f;
+
+    private void Rescale()
+    {
+        _grownScale ??= Scale;
+        Scale = _grownScale.Value * _growth * SexSize;
+        foreach (var part in _maleParts)
+            ShowFor(part);
+    }
+
+    /// <summary>
+    /// Marks a part that a male grows bigger than a female: she grows it to <paramref name="femaleSize"/> of his size,
+    /// or not at all at 0, e.g. a moose's antlers. It shrinks about its own origin, so pivot it at its root. A young
+    /// male only grows it once he is <paramref name="grownAt"/> of his full size, as a lion's mane comes in late.
+    /// </summary>
+    protected T ForMales<T>(T part, float femaleSize = 0f, float grownAt = 0f) where T : Node3D
+    {
+        _maleParts.Add(new MalePart(part, part.Scale, femaleSize, grownAt));
+        ShowFor(_maleParts[^1]);
+        return part;
+    }
+
+    private void ShowFor(MalePart male)
+    {
+        bool female = Sex == Sex.Female;
+        male.Part.Visible = female ? male.FemaleSize > 0f : _growth >= male.GrownAt;
+        male.Part.Scale = female && male.FemaleSize > 0f ? male.MaleScale * male.FemaleSize : male.MaleScale;
+    }
 
     // What the animal is doing besides walking, set before each Animate so the model can take the right pose.
     public bool IsSwimming { get; set; }
@@ -315,15 +391,166 @@ public abstract partial class Animal : Node3D
         return node;
     }
 
+    /// <summary>
+    /// How far, in radians, the animal can turn its head to either side, neck and all. A long-necked or supple animal
+    /// can look back along its flank; a mammoth or rhino, its huge head on a short, thick neck, hardly at all; an owl,
+    /// with twice as many neck bones as a mammal, right round over its shoulder.
+    /// </summary>
+    protected virtual float HeadTurn => 1f;
+
+    /// <summary>How much of a turn the base of the neck takes; the head turns the rest.</summary>
+    protected virtual float NeckShare => 0.6f;
+
+    /// <summary>How fast the head swings round to a new look: the time it takes to get most of the way there, in seconds.</summary>
+    private const float LookSeconds = 0.15f;
+
+    // Joints inserted above the neck and the head, which turn them about the vertical whatever pose Animate gives them.
+    private Node3D? _neckSwivel;
+    private Node3D? _headSwivel;
+    private float _lookYaw;
+
+    /// <summary>
+    /// Turns the head, as far as the animal can, to look along <paramref name="direction"/>: the way the camera looks, so
+    /// the player sees the back of its head from wherever they view it. It faces ahead again as it feeds, by
+    /// <paramref name="feeding"/>, climbs or dies. Call after <see cref="Animate"/>.
+    /// </summary>
+    public void LookToward(Vector3 direction, float feeding, float dt)
+    {
+        if (_neckSwivel is null)
+        {
+            if (FindChild("Neck", true, false) is not Node3D neck || neck.FindChild("Head", true, false) is not Node3D head)
+                return;
+            _neckSwivel = Swivel(neck);
+            _headSwivel = Swivel(head);
+        }
+
+        var forward = -GlobalBasis.Z with { Y = 0f };
+        direction.Y = 0f;
+        float target = 0f;
+        if (forward.Length() > 0.1f && direction.Length() > 0.1f && !IsClimbing)
+        {
+            target = forward.SignedAngleTo(direction, Vector3.Up);
+            // Out of reach, past the front, the head stays turned to whichever side it already is, rather than whipping
+            // across as the view swings past the face.
+            if (Mathf.Abs(target) > HeadTurn)
+                target = (Mathf.Abs(_lookYaw) > 0.05f ? Mathf.Sign(_lookYaw) : Mathf.Sign(target)) * HeadTurn;
+        }
+        target *= (1f - Mathf.Clamp(feeding, 0f, 1f)) * Alive;
+        _lookYaw = Mathf.Lerp(_lookYaw, target, 1f - Mathf.Exp(-dt / LookSeconds));
+
+        Turn(_neckSwivel, _lookYaw * NeckShare);
+        Turn(_headSwivel!, _lookYaw * (1f - NeckShare));
+    }
+
+    /// <summary>A joint put in above <paramref name="joint"/>, where it was, so it can turn it without upsetting its pose.</summary>
+    private static Node3D Swivel(Node3D joint, string suffix = "Swivel")
+    {
+        var parent = joint.GetParent<Node3D>();
+        var swivel = new Node3D { Name = joint.Name + suffix, Position = joint.Position };
+        parent.AddChild(swivel);
+        joint.Reparent(swivel, false);
+        joint.Position = Vector3.Zero;
+        return swivel;
+    }
+
+    /// <summary>Turns a swivel by <paramref name="yaw"/> about the vertical, however its parent is tipped.</summary>
+    private static void Turn(Node3D swivel, float yaw)
+    {
+        var up = swivel.GetParent<Node3D>().GlobalBasis.Orthonormalized().Inverse() * Vector3.Up;
+        swivel.Basis = new Basis(up.Normalized(), yaw);
+    }
+
     /// <summary>How far the lower jaw drops, in radians, when the mouth is held open to feed.</summary>
     protected virtual float JawGape => 0.35f;
+
+    /// <summary>
+    /// What the animal is feeding on whenever it lowers its head to eat, so it can feed the way its kind does. Left
+    /// unset, as for wild animals, a grazer is taken to be grazing and anything else to be eating meat.
+    /// </summary>
+    public Food? Meal { get; set; }
+
+    /// <summary>
+    /// How an animal feeds on one kind of food: how often and how hard it bites, and how its head and jaw move
+    /// between bites. Times are in seconds and angles in radians; every motion is 0, still, unless given.
+    /// </summary>
+    protected readonly record struct FeedingStyle()
+    {
+        /// <summary>Shortest and longest wait from one bite to the next.</summary>
+        public float BiteMin { get; init; } = 0.9f;
+        public float BiteMax { get; init; } = 2.4f;
+
+        /// <summary>How long a bite takes, from opening wide through snapping shut to settling again.</summary>
+        public float BiteSeconds { get; init; } = 0.35f;
+
+        /// <summary>How wide the bite opens, as a fraction of <see cref="JawGape"/>.</summary>
+        public float Gape { get; init; } = 1f;
+
+        /// <summary>How far open, as a fraction of the bite, the mouth is held between bites: 0 keeps it shut to chew.</summary>
+        public float Held { get; init; } = 1f;
+
+        /// <summary>
+        /// Laps a second, for an animal that drinks with its tongue: the jaw flicks open and shut this fast instead of
+        /// biting, and the head bobs by <see cref="Tug"/> with each lap. 0 bites instead.
+        /// </summary>
+        public float Laps { get; init; }
+
+        /// <summary>How far the head pulls back and up just after each bite, to tear off a mouthful.</summary>
+        public float Tug { get; init; }
+
+        /// <summary>How far the head shakes from side to side as it tugs, to rip meat loose, and how fast.</summary>
+        public float Shake { get; init; }
+        public float ShakeRate { get; init; } = 5f;
+
+        /// <summary>
+        /// How far the head rolls onto its side to bite with the cheek teeth, and the chance at each bite of turning
+        /// it over to chew on the other side.
+        /// </summary>
+        public float Tilt { get; init; }
+        public float SwapSide { get; init; } = 0.3f;
+
+        /// <summary>How far the head tips back after each bite, to swallow, as birds do, which can't suck down water.</summary>
+        public float Gulp { get; init; }
+
+        /// <summary>How far the lower jaw swings from side to side between bites, chewing, and chews a second.</summary>
+        public float Grind { get; init; }
+        public float GrindRate { get; init; } = 1.5f;
+
+        /// <summary>How far the head sweeps from side to side, cropping a swathe as it goes, and seconds for each sweep.</summary>
+        public float Sweep { get; init; }
+        public float SweepSeconds { get; init; } = 4f;
+    }
+
+    /// <summary>
+    /// A cat or a dog drinks by flicking its tongue into the water and snapping up the column of water it lifts, a few
+    /// laps a second, its head bobbing with each.
+    /// </summary>
+    protected static readonly FeedingStyle Lapping = new() { Laps = 3.5f, Gape = 0.35f, Tug = 0.03f };
+
+    /// <summary>
+    /// A grazer drinks by sucking water up through its barely parted lips, its throat gulping it down every second or so.
+    /// </summary>
+    protected static readonly FeedingStyle Sipping = new()
+    {
+        BiteMin = 0.9f, BiteMax = 1.3f, BiteSeconds = 0.5f, Gape = 0.15f, Held = 0.3f, Gulp = 0.04f,
+    };
+
+    /// <summary>How this kind of animal feeds on <paramref name="food"/>; by default it laps water and bites anything else.</summary>
+    protected virtual FeedingStyle FeedingStyleFor(Food food) => food == Food.Water ? Lapping : new FeedingStyle();
 
     private readonly List<Node3D> _jaws = [];
     private float _sinceBite;
     private float _nextBite = 1f;
+    private float _feedClock;
+    private float _biteSide = 1f;
+    private float _tilt;
 
-    /// <summary>How long a bite takes, from snapping the jaw shut to opening it again.</summary>
-    private const float BiteSeconds = 0.35f;
+    // Joints put in above the neck and the head, which move them as the animal feeds whatever pose Animate gives them.
+    private Node3D? _neckFeed;
+    private Node3D? _headFeed;
+    private bool _feedJointsAdded;
+
+    /// <summary>How far through the wait from one bite to the next the animal is, 0 at a bite and nearing 1 by the next.</summary>
+    protected float FeedCycle => Mathf.Clamp(_sinceBite / _nextBite, 0f, 1f);
 
     /// <summary>
     /// A lower jaw hinged at <paramref name="hinge"/>, at the back of the mouth, which <see cref="Chew"/> drops open to
@@ -350,30 +577,71 @@ public abstract partial class Animal : Node3D
     }
 
     /// <summary>
-    /// Feeding with its head down, the animal holds its mouth open and every second or two bites it shut on a mouthful,
-    /// then opens it again for the next. Drinking, it laps the same way. Any other time the mouth stays closed.
-    /// <paramref name="eat"/> is the head-dip passed to <see cref="Animate"/>.
+    /// Feeding with its head down, the animal feeds the way its kind does on its <see cref="Meal"/> (see
+    /// <see cref="FeedingStyleFor"/>): biting off mouthfuls, tearing them loose and chewing them, or lapping or sipping
+    /// water. Any other time the mouth stays closed and the head still. <paramref name="eat"/> is the head-dip passed
+    /// to <see cref="Animate"/>; call after posing the head.
     /// </summary>
     protected void Chew(float eat, float dt)
     {
-        if (_jaws.Count == 0)
-            return;
+        if (!_feedJointsAdded)
+        {
+            _feedJointsAdded = true;
+            if (FindChild("Neck", true, false) is Node3D neck && neck.FindChild("Head", true, false) is Node3D head)
+            {
+                _neckFeed = Swivel(neck, "Feed");
+                _headFeed = Swivel(head, "Feed");
+            }
+        }
 
+        var style = FeedingStyleFor(Meal ?? (Stats.CanGraze ? Food.Grass : Food.Meat));
         float feeding = Mathf.SmoothStep(0.4f, 0.9f, eat) * Alive;
+        _feedClock += dt;
         _sinceBite += dt;
         if (_sinceBite >= _nextBite)
         {
             _sinceBite = 0f;
-            _nextBite = (float)GD.RandRange(0.9, 2.4);
+            _nextBite = (float)GD.RandRange(style.BiteMin, style.BiteMax);
+            if (GD.Randf() < style.SwapSide)
+                _biteSide = -_biteSide;
         }
 
-        // The jaw snaps shut quickly and opens again more slowly.
-        float t = _sinceBite / BiteSeconds;
-        float shut = t < 0.3f ? Mathf.SmoothStep(0f, 1f, t / 0.3f) : 1f - Mathf.SmoothStep(0f, 1f, (t - 0.3f) / 0.7f);
-        float open = feeding * (1f - Mathf.Clamp(shut, 0f, 1f));
+        float open, tug, gulp = 0f, grind = 0f;
+        if (style.Laps > 0f)
+        {
+            // Each lap flicks the jaw open and shut and bobs the head up with the water it lifts.
+            float lap = 0.5f - 0.5f * Mathf.Cos(_feedClock * style.Laps * Mathf.Tau);
+            open = lap;
+            tug = lap;
+        }
+        else
+        {
+            // A bite opens wide, snaps shut and settles back to however the mouth is held. Just after it the head tugs
+            // the mouthful loose, then tips back to swallow, and the jaw chews until the next bite.
+            float t = _sinceBite / style.BiteSeconds;
+            open = t < 0.4f ? Mathf.Lerp(style.Held, 1f, Mathf.SmoothStep(0f, 1f, t / 0.4f))
+                : t < 0.6f ? 1f - Mathf.SmoothStep(0f, 1f, (t - 0.4f) / 0.2f)
+                : Mathf.Lerp(0f, style.Held, Mathf.SmoothStep(0f, 1f, (t - 0.6f) / 0.4f));
+            tug = Bump(t, 0.5f, 1.5f);
+            gulp = Bump(t, 0.8f, 2.6f);
+            grind = Mathf.SmoothStep(1f, 1.5f, t) * Mathf.Sin(_feedClock * style.GrindRate * Mathf.Tau);
+        }
+
         foreach (var jaw in _jaws)
-            jaw.Rotation = new Vector3(-JawGape * open, 0, 0);
+            jaw.Rotation = new Vector3(-JawGape * style.Gape * open * feeding, style.Grind * grind * feeding, 0);
+
+        _tilt = Mathf.MoveToward(_tilt, _biteSide * style.Tilt, dt * 1.5f);
+        if (_neckFeed is null || _headFeed is null)
+            return;
+        float sweep = style.Sweep * Mathf.Sin(_feedClock * Mathf.Tau / style.SweepSeconds);
+        float shake = style.Shake * Mathf.Sin(_feedClock * style.ShakeRate * Mathf.Tau) * tug;
+        _neckFeed.Rotation = new Vector3(style.Tug * tug, sweep + shake, 0) * feeding;
+        _headFeed.Rotation = new Vector3(style.Gulp * gulp, 0, _tilt) * feeding;
     }
+
+    /// <summary>A smooth hump from 0 up to 1 and back down to 0 as <paramref name="t"/> runs from <paramref name="from"/> to <paramref name="to"/>.</summary>
+    private static float Bump(float t, float from, float to) =>
+        t <= from || t >= to ? 0f : Mathf.Sin((t - from) / (to - from) * Mathf.Pi);
 
     /// <summary>Eases the sitting and lying poses towards <paramref name="posture"/>, taking <paramref name="seconds"/> to settle or get up.</summary>
     public void Settle(Posture posture, float seconds, float dt)

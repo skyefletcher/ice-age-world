@@ -41,4 +41,11 @@ public sealed class MeshBuilder
         _surface.SetMaterial(material);
         return _surface.Commit();
     }
+
+    /// <summary>Adds what has been built as another surface of an existing mesh, e.g. spines onto a body.</summary>
+    public ArrayMesh Commit(Material material, ArrayMesh into)
+    {
+        _surface.SetMaterial(material);
+        return _surface.Commit(into);
+    }
 }

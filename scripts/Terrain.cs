@@ -355,9 +355,9 @@ public partial class Terrain : Node3D
         rock = Mathf.Max(rock, Mathf.SmoothStep(8f, 12f, drop));
         // Mud only down by the water: the mountains standing in the ocean keep their rock and snow.
         float mud = (1f - Mathf.SmoothStep(1f, 3.5f, DistanceFromWater(x, z))) * (1f - Mathf.SmoothStep(2f, 5f, h - NearestLake(x, z).Surface));
-        // Out from the muddy shallows, the lake bed is silt.
+        // Out from the muddy shallows, a lake bed is silt; the ocean's has sand and reefs instead.
         float silt = Mathf.SmoothStep(1.5f, 4f, LakeSurfaceAt(x, z) - h);
-        return Steppe.Lerp(Snow, snow).Lerp(Rock, rock).Lerp(Mud, mud).Lerp(Silt, silt);
+        return SeabedColour(Steppe.Lerp(Snow, snow).Lerp(Rock, rock).Lerp(Mud, mud).Lerp(Silt, silt), x, z, h, rock);
     }
 
     private void GenerateHeights()
@@ -418,7 +418,8 @@ public partial class Terrain : Node3D
             Reach = BigLakeRadius * 0.3f,
         };
         _lakes.Add(big);
-        Carve(big, OceanDepth, shelf: OceanShelf, underWall: true);
+        Ocean = big;
+        Carve(big, OceanDepth, shelf: OceanShelf, underWall: true, depthAt: SeabedDepth);
 
         int placed = 0;
         for (int attempt = 0; placed < LakeCount && attempt < 500; attempt++)
@@ -477,9 +478,9 @@ public partial class Terrain : Node3D
     /// ground. The bowl is deepest at the centre, or, given a <paramref name="shelf"/>, over that fraction of the radius,
     /// shelving up from there to the shore. With <paramref name="underWall"/> the mountains round the edge of the world
     /// are left standing in the water rather than dug away, rising from the sea floor as high above the water as they
-    /// stand above the land.
+    /// stand above the land. Given <paramref name="depthAt"/>, the floor lies at that depth instead, point by point.
     /// </summary>
-    private void Carve(Lake lake, float depth, float shelf = 0f, bool underWall = false)
+    private void Carve(Lake lake, float depth, float shelf = 0f, bool underWall = false, Func<Vector2, float>? depthAt = null)
     {
         float reach = lake.Radius + lake.Shore;
         int minX = Mathf.Max(0, Mathf.FloorToInt((lake.Centre.X - reach + HalfSize) / CellSize));
@@ -502,7 +503,7 @@ public partial class Terrain : Node3D
 
             if (d < lake.Radius)
             {
-                float bowl = edge - (depth - 0.3f) * (1f - Mathf.SmoothStep(lake.Radius * shelf, lake.Radius, d));
+                float bowl = edge - ((depthAt?.Invoke(point) ?? depth) - 0.3f) * (1f -Mathf.SmoothStep(lake.Radius * shelf, lake.Radius, d));
                 float floor = Mathf.Min(original, bowl);
                 _heights[i] = floor + wall * (1f + Mathf.Max(0f, edge - floor) / EdgeWallHeight);
             }

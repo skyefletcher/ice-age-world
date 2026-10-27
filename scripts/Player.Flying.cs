@@ -103,6 +103,11 @@ public partial class Player
             return;
         }
 
+        // Glide onto a branch to perch on it. Live prey in the talons is too heavy and struggles too much to hold
+        // on a branch, so a bird carrying it must come down to the ground.
+        if (_flightTime > TakeOffGrace && !flapping && !diving && !IsLifting && TryPerch())
+            return;
+
         Animal.Flap = Mathf.MoveToward(Animal.Flap, flapping ? 1f : 0f, 4f * dt);
         Animal.Dive = Mathf.MoveToward(Animal.Dive, diving ? 1f : 0f, 3f * dt);
         AnimateAnimal(speed, 0f, 0f, dt);

@@ -75,6 +75,122 @@ public static class ProceduralTextures
     }
 
     /// <summary>
+    /// Spotted hyena coat: pale fur crowded with big, ragged, blackish blotches, close together but rarely touching,
+    /// each a different size and none of them round.
+    /// </summary>
+    public static StandardMaterial3D BlotchedFur(int seed, Color dark, Color light, Color spot, float scale)
+    {
+        var heights = HeightField(seed, stretch: 6, streakFrequency: 0.06f, grainWeight: 0.4f);
+        var blotches = Blotches(seed);
+        var (albedo, normal) = Textures(heights, (i, h) => dark.Lerp(light, h).Lerp(spot, blotches[i] * 0.9f), bumpStrength: 4f);
+        return new StandardMaterial3D
+        {
+            AlbedoTexture = albedo,
+            NormalEnabled = true,
+            NormalTexture = normal,
+            NormalScale = 0.6f,
+            Uv1Triplanar = true,
+            Uv1Scale = Vector3.One * scale,
+            Uv1TriplanarSharpness = 6f,
+            Roughness = 1f,
+        };
+    }
+
+    /// <summary>
+    /// Snowy owl plumage: white feathers crossed by rows of short dark bars, each the dark tip of one feather, bowed
+    /// into a shallow crescent and staggered row to row as overlapping feathers lie. <paramref name="barring"/> is the
+    /// share of feathers that carry a bar: nearly all on a hen, only a scattered few on a cock.
+    /// </summary>
+    public static StandardMaterial3D BarredFur(int seed, Color dark, Color light, Color bar, float scale, float barring)
+    {
+        var heights = HeightField(seed, stretch: 6, streakFrequency: 0.06f, grainWeight: 0.4f);
+        var bars = Bars(seed, barring);
+        var (albedo, normal) = Textures(heights, (i, h) => dark.Lerp(light, h).Lerp(bar, bars[i] * 0.9f), bumpStrength: 4f);
+        return new StandardMaterial3D
+        {
+            AlbedoTexture = albedo,
+            NormalEnabled = true,
+            NormalTexture = normal,
+            NormalScale = 0.6f,
+            Uv1Triplanar = true,
+            Uv1Scale = Vector3.One * scale,
+            Uv1TriplanarSharpness = 6f,
+            Roughness = 1f,
+        };
+    }
+
+    /// <summary>
+    /// A tileable mask, 1 on each bar: one to a cell of a grid whose rows are offset by half a cell, so the bars lie
+    /// in staggered rows, each a thin crescent bowed downwards and a little ragged at the ends.
+    /// </summary>
+    private static float[] Bars(int seed, float barring)
+    {
+        var rng = new RandomNumberGenerator { Seed = (ulong)seed + 11 };
+        const int columns = 8, rows = 12;
+        const float width = Size / (float)columns, height = Size / (float)rows;
+        var bars = new List<(float X, float Y, float Length, float Thickness)>();
+        for (int gy = 0; gy < rows; gy++)
+        for (int gx = 0; gx < columns; gx++)
+            if (rng.Randf() < barring)
+                bars.Add(((gx + (gy % 2) * 0.5f + rng.RandfRange(-0.1f, 0.1f)) * width, (gy + rng.RandfRange(-0.1f, 0.1f)) * height,
+                    rng.RandfRange(0.3f, 0.42f) * width, rng.RandfRange(0.12f, 0.2f) * height));
+
+        var mask = new float[Size * Size];
+        for (int y = 0; y < Size; y++)
+        for (int x = 0; x < Size; x++)
+        {
+            int i = y * Size + x;
+            foreach (var b in bars)
+            {
+                float dx = Mathf.PosMod(x - b.X + Size / 2f, Size) - Size / 2f;
+                if (Mathf.Abs(dx) > b.Length + 2f)
+                    continue;
+                float across = dx / b.Length;
+                // The crescent bows down in the middle and thins to points at either end.
+                float dy = Mathf.PosMod(y - b.Y + Size / 2f, Size) - Size / 2f - (1f - across * across) * b.Thickness * 0.8f;
+                float thickness = b.Thickness * Mathf.Sqrt(Mathf.Max(0f, 1f - across * across));
+                mask[i] = Mathf.Max(mask[i], 1f - Mathf.SmoothStep(thickness - 1f, thickness + 0.5f, Mathf.Abs(dy)));
+            }
+        }
+        return mask;
+    }
+
+    /// <summary>
+    /// A tileable mask, 1 inside each blotch: one to a cell of a jittered grid so they spread evenly, every edge
+    /// pushed in and out by a few waves round it so no two are the same shape.
+    /// </summary>
+    private static float[] Blotches(int seed)
+    {
+        var rng = new RandomNumberGenerator { Seed = (ulong)seed + 7 };
+        const int grid = 7;
+        const float cell = Size / (float)grid;
+        var blotches = new List<(float X, float Y, float Radius, float Phase1, float Phase2, float Stretch)>();
+        for (int gy = 0; gy < grid; gy++)
+        for (int gx = 0; gx < grid; gx++)
+            blotches.Add(((gx + rng.RandfRange(0.25f, 0.75f)) * cell, (gy + rng.RandfRange(0.25f, 0.75f)) * cell,
+                rng.RandfRange(7f, 12f), rng.Randf() * Mathf.Tau, rng.Randf() * Mathf.Tau, rng.RandfRange(0.7f, 1.3f)));
+
+        var mask = new float[Size * Size];
+        for (int y = 0; y < Size; y++)
+        for (int x = 0; x < Size; x++)
+        {
+            int i = y * Size + x;
+            foreach (var b in blotches)
+            {
+                float dx = Mathf.PosMod(x - b.X + Size / 2f, Size) - Size / 2f;
+                float dy = (Mathf.PosMod(y - b.Y + Size / 2f, Size) - Size / 2f) * b.Stretch;
+                float d = Mathf.Sqrt(dx * dx + dy * dy);
+                if (d > b.Radius * 1.5f)
+                    continue;
+                float angle = Mathf.Atan2(dy, dx);
+                float edge = b.Radius * (1f + 0.22f * Mathf.Sin(angle * 3f + b.Phase1) + 0.12f * Mathf.Sin(angle * 5f + b.Phase2));
+                mask[i] = Mathf.Max(mask[i], 1f - Mathf.SmoothStep(edge - 1.5f, edge, d));
+            }
+        }
+        return mask;
+    }
+
+    /// <summary>
     /// The colour a triplanar material's albedo shows at a point on a mesh with the given normal, worked out the
     /// way the material's shader does, so hair grown from that point can take the colour of the hide beneath it.
     /// </summary>

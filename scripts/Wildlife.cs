@@ -49,6 +49,19 @@ public partial class Wildlife : Node3D
     [Export] public int ReindeerPerHerd { get; set; } = 6;
     [Export] public int MooseFamilies { get; set; } = 3;
 
+    /// <summary>Woolly rhinos live alone, but a cow keeps her calf with her for a couple of years.</summary>
+    [Export] public int RhinoFamilies { get; set; } = 2;
+
+    /// <summary>Cave hyena clans: packs that hunt together like the wolves, and set on the same prey.</summary>
+    [Export] public int[] ClanSizes { get; set; } = [6, 5];
+
+    /// <summary>
+    /// Lone cave lions (young males wander alone between prides) and sabre-toothed smilodons, which live as the polar
+    /// bear does: roaming, hunting anything they can catch, the player included, then eating and sleeping it off.
+    /// </summary>
+    [Export] public int CaveLions { get; set; } = 2;
+    [Export] public int Smilodons { get; set; } = 2;
+
     [Export] public int Seed { get; set; } = 77;
 
     /// <summary>How far a hungry pack can spot a mammoth, and how far a mammoth can spot hunting wolves.</summary>
@@ -81,6 +94,9 @@ public partial class Wildlife : Node3D
     /// </summary>
     [Export] public float BearMaul { get; set; } = 60f;
     [Export] public float BearPlayerMaul { get; set; } = 15f;
+
+    /// <summary>How hard a big hunter mauls, against the polar bear: the big cats are strong, but nowhere near the bear.</summary>
+    private static float Mauling(AnimalStats hunter) => hunter.Strength / 8f;
 
     /// <summary>
     /// Chance that the wild snow leopard wants no mate and fights the player's off instead. Snow leopards are solitary
@@ -283,8 +299,8 @@ public partial class Wildlife : Node3D
         /// <summary>How much meat and muscle it has, by its build: a grown mammoth outweighs an otter some fifty times over.</summary>
         public float Bulk => Animal.Stats.BodyRadius * Animal.Stats.BodyHeight * Size * Size;
 
-        /// <summary>How many times over it shrugs off any harm: a mammoth's hide, hair and fat are a match for anything.</summary>
-        public float Toughness => Animal is Mammoth ? Mammoth.Toughness : 1f;
+        /// <summary>How many times over it shrugs off any harm: a mammoth's or rhino's hide, hair and fat are a match for anything.</summary>
+        public float Toughness => ToughnessOf(Animal);
 
         /// <summary>The bar over its head showing how much health it has left.</summary>
         public required HealthBar Bar { get; init; }
@@ -485,6 +501,32 @@ public partial class Wildlife : Node3D
             _groups.Add(family);
         }
 
+        for (int r = 0; r < RhinoFamilies; r++)
+        {
+            var family = new Group { Kind = Kind.Herd, Spacing = 4.5f };
+            family.Centre = family.Goal = Grazing(Vector3.Zero, 60f, terrain.HalfSize * 0.85f);
+            var cow = Add(new WoollyRhino(), family, new Vector3(-0.8f, 0f, 0f), 1f);
+            cow.Body.Name = $"Rhino{r}Cow";
+            var calf = Add(new WoollyRhino(), family, new Vector3(0.6f, 0f, 0.4f), YoungSize);
+            calf.Body.Name = $"Rhino{r}Calf";
+            _groups.Add(family);
+        }
+
+        // Hyena clans hunt as the wolf packs do, starting later in their day than the wolves.
+        for (int c = 0; c < ClanSizes.Length; c++)
+        {
+            var clan = new Group { Kind = Kind.Pack, Spacing = 2.4f };
+            clan.Centre = clan.Goal = Grazing(Vector3.Zero, 60f, terrain.HalfSize * 0.8f);
+            for (int i = 0; i < ClanSizes[c]; i++)
+            {
+                var hyena = Add(new CaveHyena(), clan, PackSlot(i), 1f - 0.06f * (i % 3));
+                hyena.Body.Name = $"Clan{c}Hyena{i}";
+            }
+            clan.Activity = Activity.Sleeping;
+            clan.Timer = (c + 0.5f) * SleepSeconds * 0.3f;
+            _groups.Add(clan);
+        }
+
         for (int c = 0; c < SnowLeopards; c++)
         {
             var loner = new Group { Kind = Kind.Loner, Spacing = 1f };
@@ -505,6 +547,19 @@ public partial class Wildlife : Node3D
             bear.Body.Name = "PolarBear0";
             _groups.Add(loner);
         }
+
+        for (int i = 0; i < CaveLions + Smilodons; i++)
+        {
+            bool lion = i < CaveLions;
+            var loner = new Group { Kind = Kind.Loner, Spacing = 1f };
+            loner.Centre = loner.Goal = Grazing(Vector3.Zero, 100f, terrain.HalfSize * 0.8f);
+            var cat = Add(lion ? new CaveLion() : new Smilodon(), loner, Vector3.Zero, 1f);
+            cat.Body.Name = lion ? $"CaveLion{i}" : $"Smilodon{i - CaveLions}";
+            // Like the wolf packs, they start at different points in their day, so they don't all hunt at once.
+            loner.Activity = Activity.Sleeping;
+            loner.Timer = i * SleepSeconds * 0.25f;
+            _groups.Add(loner);
+        }
     }
 
     private Beast Add(Animal animal, Group group, Vector3 slot, float size)
@@ -515,6 +570,8 @@ public partial class Wildlife : Node3D
         var spot = group.Centre + slot * group.Spacing;
         body.Position = spot with { Y = Mathf.Max(_terrain.GetHeight(spot.X, spot.Z), _water.SurfaceAt(spot) ?? float.MinValue) };
         body.Scale = Vector3.One * size;
+        // Drawn from the global generator rather than _rng, so it doesn't move where everything else is placed.
+        animal.Sex = GD.Randi() % 2 == 0 ? Sex.Female : Sex.Male;
 
         var bar = new HealthBar { Position = new Vector3(0f, animal.Stats.BodyHeight + 1f, 0f) };
         body.AddChild(bar);
@@ -637,7 +694,7 @@ public partial class Wildlife : Node3D
             beast.Bleeding = 0f;
             return true;
         }
-        if (beast.IsDead && beast.Group.IsPack && Player?.Animal is ArcticWolf)
+        if (beast.IsDead && beast.Group.IsPack && Player?.Animal.GetType() == beast.Animal.GetType())
             beast.JoinsPlayer = true;
         return false;
     }
@@ -825,7 +882,7 @@ public partial class Wildlife : Node3D
                     ThinkRaft(group, dt);
                     break;
                 case Kind.Loner:
-                    if (group.Members[0].Animal is PolarBear)
+                    if (IsBigHunter(group.Members[0].Animal))
                         ThinkBear(group, dt);
                     else
                         ThinkLoner(group, dt);
@@ -1244,7 +1301,7 @@ public partial class Wildlife : Node3D
                 continue;
             foreach (var beast in group.Members)
             {
-                if (beast.IsDead || beast.OnTree || beast.Animal is PolarBear)
+                if (beast.IsDead || beast.OnTree || IsBigHunter(beast.Animal))
                     continue;
                 float distance = beast.Body.GlobalPosition.DistanceTo(bear.Body.GlobalPosition);
                 if (distance < bestDistance)
@@ -1259,12 +1316,26 @@ public partial class Wildlife : Node3D
 
     /// <summary>Whether the bear will go after the player: on the ground, as any animal it hunts.</summary>
     private static bool IsBearPrey(Player player) =>
-        !player.IsDead && player.OnTheGround && player.Animal is not (PolarBear or BaldEagle);
+        !player.IsDead && player.OnTheGround && player.Animal is not Bird && !IsBigHunter(player.Animal);
+
+    /// <summary>
+    /// The big hunters that live as the polar bear does: the bear itself and the big cats. They leave one another alone,
+    /// every wolf pack fears them, and herds run from them when they hunt.
+    /// </summary>
+    public static bool IsBigHunter(Animal animal) => animal is PolarBear or CaveLion or Smilodon;
+
+    /// <summary>How many times over an animal shrugs off any harm: a mammoth's or rhino's hide, hair and fat are a match for anything.</summary>
+    public static float ToughnessOf(Animal animal) => animal switch
+    {
+        Mammoth => Mammoth.Toughness,
+        WoollyRhino => WoollyRhino.Toughness,
+        _ => 1f,
+    };
 
     private bool BearSeesPlayer(Beast bear) =>
         Player is { } player && IsBearPrey(player) && bear.Body.GlobalPosition.DistanceTo(player.GlobalPosition) < PlayerSightRange * 1.5f;
 
-    private IEnumerable<Group> Bears => _groups.Where(g => g.Kind == Kind.Loner && g.Members[0].Animal is PolarBear);
+    private IEnumerable<Group> Bears => _groups.Where(g => g.Kind == Kind.Loner && IsBigHunter(g.Members[0].Animal));
 
     /// <summary>
     /// Where a polar bear is, if one is close to this animal or hunting it: a snow leopard takes to a tree, since the bear
@@ -1331,7 +1402,7 @@ public partial class Wildlife : Node3D
     /// </summary>
     private IEnumerable<Vector3> Feared(bool brave)
     {
-        bool Fears(Animal animal) => animal is PolarBear || (!brave && animal is SnowLeopard);
+        bool Fears(Animal animal) => IsBigHunter(animal) || (!brave && animal is SnowLeopard);
         var wild = _groups.Where(g => g.Kind == Kind.Loner).SelectMany(g => g.Members)
             .Where(c => !c.IsDead && Fears(c.Animal)).Select(c => c.Body.GlobalPosition);
         return Player is { IsDead: false } player && Fears(player.Animal) ? wild.Append(player.GlobalPosition) : wild;
@@ -1693,7 +1764,7 @@ public partial class Wildlife : Node3D
                 eat = 0.6f + 0.4f * Mathf.Sin(_time * 10f);
             }
         }
-        else if (beast.Animal is PolarBear && group.Activity != Activity.Roaming)
+        else if (IsBigHunter(beast.Animal) && group.Activity != Activity.Roaming)
         {
             float reach = stats.BodyRadius * beast.Size;
             switch (group.Activity)
@@ -1713,14 +1784,14 @@ public partial class Wildlife : Node3D
                     {
                         if (prey is not null)
                         {
-                            prey.Health -= BearMaul / Mathf.Max(0.05f, prey.Bulk) / prey.Toughness * dt;
+                            prey.Health -= BearMaul * Mauling(stats) / Mathf.Max(0.05f, prey.Bulk) / prey.Toughness * dt;
                             Spill(prey);
                             if (!prey.Group.IsPack)
                                 Scare(prey.Group, position);
                         }
                         else
                         {
-                            player.Bitten(BearPlayerMaul * dt, beast.Animal);
+                            player.Bitten(BearPlayerMaul * Mauling(stats) * dt, beast.Animal);
                         }
                         eat = 0.6f + 0.4f * Mathf.Sin(_time * 8f);
                     }
@@ -1888,7 +1959,7 @@ public partial class Wildlife : Node3D
 
         // Face the way it's going, or the group's way when standing about; feeding wolves face the carcass.
         float facing = moving > 0.3f ? Mathf.Atan2(-beast.Velocity.X, -beast.Velocity.Z) : group.Heading;
-        if (eat > 0f && (group.IsPack || beast.Animal is PolarBear))
+        if (eat > 0f && (group.IsPack || IsBigHunter(beast.Animal)))
             facing = Yaw(group.Centre - position);
         beast.Yaw = Mathf.LerpAngle(beast.Yaw, facing, Mathf.Min(1f, (moving > 0.3f || eat > 0f ? stats.TurnSpeed : 0.5f) * dt));
         beast.Animal.Rotation = new Vector3(0f, beast.Yaw, 0f);
@@ -1928,11 +1999,12 @@ public partial class Wildlife : Node3D
 
     /// <summary>
     /// The wild snow leopard within <paramref name="range"/> of <paramref name="at"/>, alive and on the ground, if there
-    /// is one: a mate for the player's snow leopard.
+    /// is one and it isn't of the player's <paramref name="sex"/>: a mate for the player's snow leopard.
     /// </summary>
-    public Animal? MateNear(Vector3 at, float range) =>
+    public Animal? MateNear(Vector3 at, float range, Sex sex) =>
         _groups.Where(g => g.Kind == Kind.Loner && g.Rival is null).SelectMany(g => g.Members)
-            .FirstOrDefault(c => c.Animal is SnowLeopard && !c.IsDead && !c.OnTree && c.Body.GlobalPosition.DistanceTo(at) < range)
+            .FirstOrDefault(c => c.Animal is SnowLeopard && c.Animal.Sex != sex && !c.IsDead && !c.OnTree
+                && c.Body.GlobalPosition.DistanceTo(at) < range)
             ?.Animal;
 
     /// <summary>
@@ -1965,7 +2037,7 @@ public partial class Wildlife : Node3D
     {
         _squabbleWait = Mathf.Max(0f, _squabbleWait - dt);
         if (Player is not { } player || player.IsDead || player.Animal is not SnowLeopard
-            || !player.OnTheGround || FightingOverPlayer)
+            || !player.IsGrownUp || !player.OnTheGround || FightingOverPlayer)
             return;
 
         var near = _groups

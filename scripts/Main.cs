@@ -22,6 +22,10 @@ public partial class Main : Node3D
         water.Build(terrain);
         var wildlife = GetNode<Wildlife>("Wildlife");
         wildlife.Populate(terrain, water);
+        // The ocean floor, with its reefs and kelp forests, and the beds of the small lakes.
+        var seabed = new Seabed { Name = "Seabed" };
+        AddChild(seabed);
+        seabed.Populate(terrain);
         var underwater = new Underwater { Name = "Underwater" };
         AddChild(underwater);
         underwater.Build(terrain);
@@ -31,6 +35,8 @@ public partial class Main : Node3D
         player.Grassland = grassland;
         player.Water = water;
         player.Wildlife = wildlife;
+        player.Seabed = seabed;
+        seabed.Player = player;
         player.Underwater = underwater;
         underwater.Diver = player;
         wildlife.Player = player;
@@ -78,10 +84,10 @@ public partial class Main : Node3D
     }
 
     private Terrain? _terrain;
+    private Water? _water;
     private Environment? _environment;
     private float _daylight;
     private float _fogLight;
-    private Water? _water;
     private DirectionalLight3D _sun = null!;
     private float _sunlight;
     private Color _fogColour;

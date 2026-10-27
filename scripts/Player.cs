@@ -96,7 +96,7 @@ public partial class Player : CharacterBody3D
 
     private enum Feeding { None, Eating, Drinking }
 
-    private enum Mode { Ground, Flying, Climbing, Treetop, Branch, Diving }
+    private enum Mode { Ground, Flying, Climbing, Treetop, Branch }
 
     private Animal[] _animals = [];
     private readonly Dictionary<Animal, Herd> _herds = [];
@@ -174,6 +174,11 @@ public partial class Player : CharacterBody3D
         () => new Reindeer { Name = "Reindeer" },
         () => new Moose { Name = "Moose" },
         () => new PolarBear { Name = "PolarBear" },
+        () => new SnowyOwl { Name = "SnowyOwl" },
+        () => new CaveLion { Name = "CaveLion" },
+        () => new Smilodon { Name = "Smilodon" },
+        () => new WoollyRhino { Name = "WoollyRhino" },
+        () => new CaveHyena { Name = "CaveHyena" },
     ];
 
     /// <summary>Every animal the player can be, in switching order, bought or not.</summary>
@@ -223,8 +228,9 @@ public partial class Player : CharacterBody3D
         _animalIndex = index;
         _mode = Mode.Ground;
         Animal.Visible = true;
-        Animal.IsFlying = Animal.IsClimbing = Animal.IsSwimming = Animal.IsDiving = false;
+        Animal.IsFlying = Animal.IsClimbing = Animal.IsSwimming = false;
         StopFalling();
+        StopDiving();
         Posture = Posture.Standing;
         Animal.Sitting = Animal.Lying = 0f;
 
@@ -254,6 +260,8 @@ public partial class Player : CharacterBody3D
         _mode = Mode.Ground;
         Animal.IsFlying = Animal.IsClimbing = false;
         StopFalling();
+        StopDiving();
+        Breath = 100f;
         Posture = Posture.Standing;
         Animal.Sitting = Animal.Lying = 0f;
         Animal.Rotation = new Vector3(0, Animal.Rotation.Y, 0);
@@ -273,6 +281,11 @@ public partial class Player : CharacterBody3D
         if (@event.IsActionPressed(InputSetup.SwitchAnimal) && !IsDead)
         {
             SwitchAnimal();
+            return;
+        }
+        if (@event.IsActionPressed(InputSetup.SwitchSex) && !IsDead)
+        {
+            BecomeSex(Sex == Sex.Male ? Sex.Female : Sex.Male);
             return;
         }
 
@@ -303,11 +316,14 @@ public partial class Player : CharacterBody3D
         if (IsDead)
         {
             LieDead(dt);
+            Animal.LookToward(Vector3.Zero, 0f, dt);
             return;
         }
+        Grow(dt);
         TrackChores(dt);
         Heal(dt);
-        Breathe(dt);
+        if (!IsDiving)
+            Breathe(dt);
         Court(dt);
 
         // Movement is relative to where the camera is facing, flattened onto the ground plane.
@@ -321,9 +337,6 @@ public partial class Player : CharacterBody3D
         {
             case Mode.Ground when IsGripping:
                 HoldOn(dt);
-                break;
-            case Mode.Diving:
-                Dive(dt, direction);
                 break;
             case Mode.Flying:
                 Fly(dt, direction);
@@ -353,6 +366,10 @@ public partial class Player : CharacterBody3D
         if (GlobalPosition.Y < -50f)
             Respawn();
         HoldKill();
+
+        // The head turns to look the way the camera does, so the player sees the back of it from any angle the animal
+        // can turn that far.
+        Animal.LookToward(-_cameraPivot.GlobalBasis.Z, _headDip, dt);
     }
 
     /// <summary>Moving on foot or swimming: everything every animal can do.</summary>
@@ -367,6 +384,13 @@ public partial class Player : CharacterBody3D
         // Start swimming a little before the float depth, and only stop once well out of it, so bobbing on the surface
         // never flickers the animal in and out of swimming.
         IsSwimming = waterDepth > Stats.FloatDepth * (IsSwimming ? 0.5f : 0.87f);
+
+        // A diver goes under from the surface, and stays down until it comes back up (see Player.Diving.cs).
+        if (IsDiving || (IsSwimming && StartsDive(surface!.Value)))
+        {
+            Dive(dt, direction, surface);
+            return;
+        }
 
         // Sit or lie down, or get up again. Moving or jumping gets the animal up, but it can't go anywhere until it's
         // back on its feet.
@@ -391,10 +415,6 @@ public partial class Player : CharacterBody3D
             TakeOff(direction);
             return;
         }
-
-        // An otter at the surface can dive under, and eats there what it brought up from the bed.
-        if (IsSwimming && !resting && TryDive())
-            return;
 
         bool airborne = false;
         if (IsSwimming)
@@ -504,8 +524,12 @@ public partial class Player : CharacterBody3D
             return;
         }
 
+        // Tell the animal what it's feeding on, so it laps, grazes or tears at meat as its kind does.
         if (IsFeeding && !_stopFeeding)
-            ActionPrompt = _feeding == Feeding.Drinking ? "Press E or click to stop drinking" : "Press E or click to stop eating";
+            Animal.Meal = _feeding == Feeding.Drinking ? Food.Water : _carcass is not null ? Food.Meat : Food.Grass;
+
+        if (IsFeeding && !_stopFeeding)
+            ActionPrompt =_feeding == Feeding.Drinking ? "Press E or click to stop drinking" : "Press E or click to stop eating";
 
         if (!IsFeeding && lookForFood && !Animal.IsResting)
         {

@@ -53,6 +53,12 @@ public partial class Moose : Quadruped
     public override string DisplayName => "Moose";
     public override string YoungName => "Moose calf";
 
+    // A moose cow is smaller than a bull, and grows no antlers at all.
+    protected override float FemaleSize => 0.88f;
+
+    // A bull's neck is short and thick under the weight of his antlers: he can turn his head only so far.
+    protected override float HeadTurn => 0.9f;
+
     public override AnimalStats Stats { get; } = new()
     {
         // Moose trot tirelessly and can gallop at about 55 km/h, swim for kilometres across lakes, and dive to feed on
@@ -86,6 +92,14 @@ public partial class Moose : Quadruped
     protected override float CrouchDrop => 0.4f;
     protected override float CrouchPitch => 0.35f;
     protected override float HeadDown => -1.5f;
+
+    // A moose is a browser, built for shrubs, and crops grass slowly and deliberately, its long head pulling hard at
+    // each mouthful and its heavy jaw chewing it at length before the next. It sucks water up.
+    protected override FeedingStyle FeedingStyleFor(Food food) => food switch
+    {
+        Food.Water => Sipping,
+        _ => new() { BiteMin = 1.4f, BiteMax = 2.4f, BiteSeconds = 0.45f, Gape = 0.8f, Held = 0f, Tug = 0.16f, Grind = 0.1f, GrindRate = 1.2f, Sweep = 0.08f },
+    };
     protected override float LieNeck => -0.5f;
     protected override float LieHead => 0.3f;
 
@@ -211,6 +225,8 @@ public partial class Moose : Quadruped
     {
         var root = Pivot(Head, "Antler", new Vector3(side * 0.09f, 0.11f, 0.06f));
         root.Scale = Vector3.One * (AntlerScale / HeadScale);
+        // A calf grows none in its first year.
+        ForMales(root, grownAt: 0.8f);
         var palmAt = new Vector3(side * 0.42f, 0.2f, 0.02f);
         Attach(root, "Beam", Tube([Vector3.Zero, new Vector3(side * 0.16f, 0.06f, 0.02f), palmAt * 0.7f], [0.05f, 0.045f, 0.04f], 8, antler, capEnd: false));
 

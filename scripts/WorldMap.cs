@@ -4,7 +4,7 @@ using Godot;
 namespace IceAgeWorld;
 
 /// <summary>
-/// A round map of the land round the player, as in Savannah Life, in the bottom left corner unless hidden with M: green
+/// A round map of the land round the player, as in Savannah Life, in the bottom right corner unless hidden with M: green
 /// steppe, white snowfields and grey crags, blue lakes and dark specks of forest, black marks for cave mouths, drawn
 /// once from the terrain, with north at the top. It follows the player, the arrow in the middle pointing the way it
 /// faces, and shows only the land nearby. Dots show where every other animal of its kind is: the wild ones in gold and
@@ -32,6 +32,7 @@ public partial class WorldMap : Control
     private static readonly Color Wild = new(1f, 0.8f, 0.2f);
     private static readonly Color Own = new(0.35f, 1f, 0.45f);
     private static readonly Color Ink = new(0.08f, 0.08f, 0.1f);
+    private static readonly Color Gold = new(1f, 0.82f, 0.25f);
 
     private ImageTexture? _picture;
 
@@ -56,11 +57,11 @@ public partial class WorldMap : Control
             return;
         _picture ??= Paint(terrain);
 
-        // A small round map in the bottom left corner, clear of the needs in the bottom right, on a dark disc with a
-        // gold rim to match the needs' badges, and the key on a dark strip beneath it.
+        // A small round map in the bottom right corner, clear of the needs bars in the bottom left, on a dark disc with a
+        // gold rim, and the key on a dark strip beneath it.
         var screen = GetViewportRect().Size;
         float side = Mathf.Min(screen.X, screen.Y - KeyHeight) * ScreenShare;
-        var area = new Rect2(new Vector2(Margin, screen.Y - Margin - KeyHeight - side), new Vector2(side, side));
+        var area = new Rect2(new Vector2(screen.X - Margin - side, screen.Y - Margin - KeyHeight - side), new Vector2(side, side));
         var middle = area.GetCenter();
         float radius = side / 2f;
         var backing = new Color(0f, 0f, 0f, 0.8f);
@@ -77,7 +78,7 @@ public partial class WorldMap : Control
             uvs[i] = here + round * ViewShare / 2f;
         }
         DrawPolygon(rim, new[] { Colors.White }, uvs, _picture);
-        DrawArc(middle, radius + 2f, 0f, Mathf.Tau, RimPoints, NeedsPanel.Gold, 4f, true);
+        DrawArc(middle, radius + 2f, 0f, Mathf.Tau, RimPoints, Gold, 4f, true);
 
         // World X runs left to right and Z top to bottom, so -Z, north, is up, and the player is in the middle.
         // Anything further off than the map reaches is shown on the rim, in the direction it lies.
@@ -114,8 +115,10 @@ public partial class WorldMap : Control
             width += EntryWidth(text);
         var strip = new StyleBoxFlat { BgColor = backing };
         strip.SetCornerRadiusAll(8);
-        DrawStyleBox(strip, new Rect2(area.Position.X - 8f, area.End.Y + 6f, Mathf.Max(side + 16f, width + 8f), KeyHeight));
-        var key = area.Position + new Vector2(6f, side + 6f + KeyHeight / 2f + 5f);
+        // The strip lines up with the right of the map, so a long key runs off to the left rather than off the screen.
+        float stripWidth = Mathf.Max(side + 16f, width + 8f);
+        DrawStyleBox(strip, new Rect2(area.End.X + 8f - stripWidth, area.End.Y + 6f, stripWidth, KeyHeight));
+        var key = new Vector2(area.End.X + 8f - stripWidth + 14f, area.Position.Y + side + 6f + KeyHeight / 2f + 5f);
         foreach (var (text, mark) in entries)
         {
             mark(key + new Vector2(0f, -5f));
@@ -124,7 +127,7 @@ public partial class WorldMap : Control
         }
     }
 
-    /// <summary>Gap between the map and the left and bottom edges of the screen.</summary>
+    /// <summary>Gap between the map and the right and bottom edges of the screen.</summary>
     private const float Margin = 28f;
 
     /// <summary>Points round the edge of the round map: enough that it looks smooth.</summary>
