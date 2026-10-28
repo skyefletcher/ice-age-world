@@ -48,6 +48,15 @@ public partial class Player
     /// <summary>True while the animal has a kill in its jaws.</summary>
     public bool IsCarrying => _carrying is not null;
 
+    /// <summary>
+    /// What a flying bird has in its talons, a kill or live prey, if anything: what a wild eagle or owl chases it to
+    /// steal (see <see cref="Wildlife"/>'s eagles).
+    /// </summary>
+    public Animal? InTalons => Animal is Bird && Animal.IsFlying ? _carrying ?? _lifting : null;
+
+    /// <summary>Whether the player still has <paramref name="food"/>, in its jaws or talons, flying or not.</summary>
+    public bool IsHolding(Animal food) => _carrying == food || _lifting == food;
+
     /// <summary>Where the mouth reaches to, just in front of the body.</summary>
     private Vector3 Mouth => GlobalPosition - Animal.GlobalBasis.Z.Normalized() * Stats.MouthDistance;
 
@@ -88,6 +97,19 @@ public partial class Player
         if (!upTree && Wildlife.PreyNear(Mouth, PounceReach * Size) is { } prey)
         {
             Pounce(prey);
+            return;
+        }
+
+        // A wild bird's nest within reach: eggs are an easy meal for any hunter, if it can face down the parents.
+        if (Wildlife.WildNestNear(Mouth, Stats.EatReach + 0.5f) is { } nest)
+        {
+            ActionPrompt = $"E or click to eat an egg ({nest.Eggs} left)";
+            if (Input.IsActionJustPressed(InputSetup.Eat))
+            {
+                Wildlife.EatWildEgg(nest);
+                Hunger = Mathf.Min(100f, Hunger + Wildlife.EggNourishment);
+                _headDip = 1f;
+            }
             return;
         }
 
@@ -271,6 +293,9 @@ public partial class Player
         bool killed = Wildlife.Bite(prey, BiteStrength * 2f * Size * Size, GlobalPosition);
         if (killed && Wildlife.CanCarry(prey, Stats.BodyRadius * Stats.BodyHeight * CarryStrength))
             _carrying = prey;
+        // Unless the strike killed it, the mate and grown young stoop in to help bring it down.
+        else if (!killed && _herds.TryGetValue(Animal, out var family))
+            family.Attack(prey);
     }
 
     /// <summary>Keeps a carried kill in the jaws, or a flying bird's talons, wherever the hunter has got to this frame.</summary>

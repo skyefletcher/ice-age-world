@@ -140,8 +140,8 @@ public partial class Player : CharacterBody3D
             AddChild(animal);
 
             // Pack and herd animals come with companions of their own kind, who only show while the player is one of them.
-            // A snow leopard or bald eagle lives alone until it finds a mate (see Player.Family.cs), so its family starts empty.
-            if (animal.Stats.Companions > 0 || animal is SnowLeopard or BaldEagle)
+            // A snow leopard or bird of prey lives alone until it finds a mate (see Player.Family.cs), so its family starts empty.
+            if (animal.Stats.Companions > 0 || animal is SnowLeopard or Bird)
             {
                 var kind = animal.GetType();
                 var herd = new Herd
@@ -149,8 +149,8 @@ public partial class Player : CharacterBody3D
                     Leader = this,
                     Breed = () => (Animal)Activator.CreateInstance(kind)!,
                     Count = animal.Stats.Companions,
-                    IsFamily = animal is SnowLeopard or BaldEagle,
-                    LaysEggs = animal is BaldEagle,
+                    IsFamily = animal is SnowLeopard or Bird,
+                    LaysEggs = animal is Bird,
                     Name = animal.Name + "Herd",
                     Visible = false,
                 };

@@ -61,9 +61,13 @@ public partial class Player
             }
         }
 
-        // Unless the strike killed it, the talons leave it bleeding.
+        // Unless the strike killed it, the talons leave it bleeding, and the mate and grown young stoop in to help.
         if (prey is not null && !Wildlife!.Bite(prey, BiteStrength * SlashStrength * Size * Size, GlobalPosition))
+        {
             Wildlife.Bleed(prey, SlashBleed * Size * Size);
+            if (_herds.TryGetValue(Animal, out var family))
+                family.Attack(prey);
+        }
     }
     /// <summary>
     /// How heavy an animal the eagle can lift alive, compared with its own bulk: a hare, an otter or a youngster, but

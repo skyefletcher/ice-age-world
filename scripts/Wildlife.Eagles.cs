@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Godot;
 
 namespace IceAgeWorld;
@@ -14,10 +15,17 @@ namespace IceAgeWorld;
 /// hunter's bite as it swoops low, or as an eagle with its own talons in the air (see <see cref="Player"/>'s Swoop).
 /// A grown player's eagle of the other sex, with no mate yet, is courted instead: the wild one flies up and circles
 /// round it, and the two can pair up (see <see cref="Player"/>'s Court).
+/// Wild snowy owls live the same way out on the open tundra, away from the water: each sits on the ground, as snowy
+/// owls perch on hummocks and boulders where there are no trees, and flies low, slow circles over its patch, quartering
+/// it for hares. They drive the player's owl off their ground the same way.
+/// A player's bird of any kind flying by with food in its talons isn't fought but robbed: the wild one chases close
+/// behind it, talons reaching, and if the player lets go, dives after the food, catches it as it falls (or off the
+/// ground), carries it home and eats it on its perch.
 /// </summary>
 public partial class Wildlife
 {
     [Export] public int BaldEagles { get; set; } = 4;
+    [Export] public int SnowyOwls { get; set; } = 4;
 
     /// <summary>How close the player's eagle may come to a wild one's perch before it is chased off.</summary>
     [Export] public float EagleTerritory { get; set; } = 40f;
@@ -41,11 +49,21 @@ public partial class Wildlife
     private const float SoarHeight = 28f;
     private const float SoarRadius = 35f;
 
+    /// <summary>An owl hunts low, a few metres up, beating slowly round a smaller patch of ground.</summary>
+    private const float OwlFlyHeight = 7f;
+    private const float OwlFlyRadius = 22f;
+
     /// <summary>After a strike, an eagle climbs away this many seconds before turning to come round at its foe again.</summary>
     private const float PassSeconds = 2.5f;
 
     /// <summary>How far past the two bodies a stooping eagle's outstretched talons reach.</summary>
     private const float TalonsReach = 1.6f;
+
+    /// <summary>How close its talons must come to food the player dropped to snatch it, past the food's own size.</summary>
+    private const float LootReach = 1.5f;
+
+    /// <summary>How much of a unit-bulk carcass an eagle eats a second on its perch: a giant hare lasts it a minute or so.</summary>
+    private const float EagleMouthful = 0.003f;
 
     /// <summary>How long an eagle soars, and how long it then sits on its perch, in seconds, chosen afresh each time.</summary>
     private const float SoarMin = 40f, SoarMax = 90f;
@@ -60,6 +78,8 @@ public partial class Wildlife
     {
         public required Vector3 Perch;
         public required Vector3 Over;
+        public float Height = SoarHeight;
+        public float Radius = SoarRadius;
         public bool Airborne;
         public bool Landing;
         public float Timer;
@@ -68,6 +88,23 @@ public partial class Wildlife
 
         /// <summary>True while it's flying circles round the player's eagle, courting it.</summary>
         public bool Courting;
+
+        /// <summary>
+        /// True while it chases the player to steal the food in its talons, and what that food is, so it knows what to
+        /// dive for if the player lets go.
+        /// </summary>
+        public bool Robbing;
+        public Animal? Coveted;
+
+        /// <summary>
+        /// Food the player dropped, which it's diving to catch, carrying home in its talons, or eating on its perch.
+        /// </summary>
+        public Animal? Loot;
+        public bool Holding;
+        public bool Eating;
+
+        /// <summary>True once the player has attacked it: then it fights, food or no food, until the fight is over.</summary>
+        public bool Provoked;
     }
 
     private readonly Dictionary<Beast, Flight> _flights = [];
@@ -81,7 +118,8 @@ public partial class Wildlife
             var lake = lakes[e % lakes.Count];
             var middle = new Vector3(lake.Middle.X, lake.Surface, lake.Middle.Y);
             var shore = Shore(lake) ?? Grazing(middle, 20f, 60f);
-            var perch = TreeNear(shore, 25f)?.Summit ?? shore;
+            var tree = TreeNear(shore, 25f);
+            var perch = tree?.Summit ?? shore;
             // It circles out over the water off its stretch of shore, where it would watch for fish.
             var seaward = (middle - shore) with { Y = 0f };
             var over = shore + (seaward.LengthSquared() > 1f ? seaward.Normalized() * Mathf.Min(SoarRadius * 0.6f, seaward.Length()) : Vector3.Zero);
@@ -93,6 +131,29 @@ public partial class Wildlife
             eagle.Body.GlobalPosition = perch;
             _flights[eagle] = new Flight { Perch = perch, Over = over, Timer = _rng.RandfRange(5f, PerchMax) };
             _groups.Add(group);
+            // Every other one is a hen with a mate and a nest of eggs (see Wildlife.Nests.cs).
+            if (e % 2 == 0)
+                AddNest(eagle, tree);
+        }
+
+        for (int o = 0; o < SnowyOwls; o++)
+        {
+            var perch = Grazing(Vector3.Zero, 60f, _terrain.HalfSize * 0.85f);
+            // It faces out over the ground it hunts, a little way off its perch.
+            float angle = _rng.RandfRange(0f, Mathf.Tau);
+            var over = perch + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * OwlFlyRadius * 0.5f;
+            var group = new Group { Kind = Kind.Eagle, Spacing = 1f };
+            group.Centre = group.Goal = perch;
+            var owl = Add(new SnowyOwl(), group, Vector3.Zero, 1f);
+            owl.Body.Name = $"SnowyOwl{o}";
+            owl.Body.GlobalPosition = perch;
+            _flights[owl] = new Flight
+            {
+                Perch = perch, Over = over, Height = OwlFlyHeight, Radius = OwlFlyRadius, Timer = _rng.RandfRange(5f, PerchMax),
+            };
+            _groups.Add(group);
+            if (o % 2 == 0)
+                AddNest(owl, null);
         }
     }
 
@@ -146,38 +207,80 @@ public partial class Wildlife
     {
         var eagle = group.Members[0];
         group.Fleeing = Mathf.Max(0f, group.Fleeing - dt);
+        var flight = _flights[eagle];
         if (eagle.IsDead || Player is not { } player)
         {
             group.HuntsPlayer = false;
+            flight.Robbing = false;
+            LoseLoot(flight);
             return;
         }
-
-        var flight = _flights[eagle];
         var perch = flight.Perch;
+
+        // Food it was after that the player has snatched back, another bird has caught, or that is all eaten, it forgets.
+        // (Once caught it's dead, so a live animal then is a new one, reborn when the last of the meal was eaten.)
+        bool caught = flight.Holding || flight.Eating;
+        if (flight.Loot is { } loot && (player.IsHolding(loot) || !(HasMeat(loot) || (!caught && IsAlive(loot)))
+            || _flights.Any(f => f.Value != flight && f.Value.Loot == loot && (f.Value.Holding || f.Value.Eating))))
+            LoseLoot(flight);
 
         // A grown eagle of the other sex with no mate yet is courted, not chased off: while it flies, the wild one flies up
         // to meet it anywhere in or near its territory, and keeps with it while it stays close.
-        bool suitor = !player.IsDead && player.Animal is BaldEagle && player.IsGrownUp && player.Sex != eagle.Animal.Sex
-            && player.Family is { HasMate: false };
+        bool rival = player.Animal.GetType() == eagle.Animal.GetType();
+        bool suitor = !player.IsDead && rival && player.IsGrownUp && player.Sex != eagle.Animal.Sex
+            && player.Family is { HasMate: false } && NestOf(eagle) is null;
         float range = flight.Courting ? EagleTerritory * 2f : EagleTerritory * 1.5f;
         flight.Courting = suitor && player.Animal.IsFlying && !group.HuntsPlayer && group.Fleeing <= 0f && eagle.Health >= EagleDefends
             && (player.GlobalPosition.DistanceTo(perch) < range || player.GlobalPosition.DistanceTo(eagle.Body.GlobalPosition) < range);
 
+        // Eagles are pirates: rather than catch their own, they chase down another bird carrying food, an osprey or a
+        // rival eagle, and harry it until it lets go, then catch the food as it falls. So a player's bird with food in
+        // its talons, of any kind, is chased for it rather than fought, unless it has picked a fight itself.
+        var food = player.IsDead ? null : player.InTalons;
+        bool far = eagle.Body.GlobalPosition.DistanceTo(player.GlobalPosition) > PlayerSightRange * 2.5f;
+        if (flight.Robbing)
+        {
+            // It let go: dive for it.
+            if (food is null && flight.Coveted is { } dropped && !player.IsHolding(dropped) && (HasMeat(dropped) || IsAlive(dropped)))
+                flight.Loot = dropped;
+            flight.Coveted = food;
+            if (food is null || far || flight.Provoked || flight.Courting || group.Fleeing > 0f || eagle.Health < EagleDefends)
+                flight.Robbing = false;
+        }
+        else if (food is not null && !flight.Provoked && !flight.Courting && flight.Loot is null && group.Fleeing <= 0f
+            && eagle.Health >= EagleDefends
+            && (player.GlobalPosition.DistanceTo(perch) < EagleTerritory * 1.5f
+                || player.GlobalPosition.DistanceTo(eagle.Body.GlobalPosition) < EagleTerritory))
+        {
+            flight.Robbing = true;
+            flight.Coveted = food;
+            group.HuntsPlayer = false;
+        }
+
         if (group.HuntsPlayer)
         {
-            bool far = eagle.Body.GlobalPosition.DistanceTo(player.GlobalPosition) > PlayerSightRange * 2.5f;
             if (player.IsDead || far || eagle.Health < EagleGivesUp)
             {
                 group.HuntsPlayer = false;
+                flight.Provoked = false;
                 if (eagle.Health < EagleGivesUp)
                     Scare(group, player.GlobalPosition, seconds: 20f);
             }
         }
-        else if (!suitor && group.Fleeing <= 0f && eagle.Health >= EagleDefends && !player.IsDead && player.Animal is BaldEagle
-            && player.GlobalPosition.DistanceTo(perch) < EagleTerritory)
+        else if (!suitor && !flight.Robbing && food is null && group.Fleeing <= 0f && eagle.Health >= EagleDefends && !player.IsDead
+            && rival && player.GlobalPosition.DistanceTo(perch) < EagleTerritory)
         {
             group.HuntsPlayer = true;
         }
+    }
+
+    /// <summary>Lets go of any food it has, and forgets about it.</summary>
+    private void LoseLoot(Flight flight)
+    {
+        if (flight.Loot is { } loot && flight.Holding)
+            Drop(loot);
+        flight.Loot = null;
+        flight.Holding = flight.Eating = false;
     }
 
     /// <summary>
@@ -186,15 +289,27 @@ public partial class Wildlife
     /// </summary>
     private void EagleAttacked(Beast eagle, Vector3 from)
     {
+        var flight = _flights.GetValueOrDefault(eagle);
+        if (flight is not null)
+        {
+            // Attacked, it drops whatever it has and turns on its attacker.
+            flight.Robbing = false;
+            LoseLoot(flight);
+        }
         if (eagle.Health >= EagleGivesUp)
         {
             eagle.Group.HuntsPlayer = true;
+            if (flight is not null)
+                flight.Provoked = true;
             return;
         }
         // In the red, it breaks off at once and flies off high and away.
         eagle.Group.HuntsPlayer = false;
-        if (_flights.TryGetValue(eagle, out var flight))
+        if (flight is not null)
+        {
             flight.PullAway = 0f;
+            flight.Provoked = false;
+        }
         Scare(eagle.Group, from, seconds: 20f);
     }
 
@@ -212,7 +327,15 @@ public partial class Wildlife
         if (!flight.Airborne)
         {
             flight.Timer -= dt;
-            if (player is null && !fleeing && !flight.Courting && flight.Timer > 0f)
+            // It sits on over a meal until the last of it is gone.
+            if (flight.Eating && flight.Loot is { } meal)
+            {
+                EatFrom(meal, EagleMouthful * dt);
+                flight.Timer = Mathf.Max(flight.Timer, 1f);
+            }
+            bool diving = flight.Loot is not null && !flight.Eating;
+            // A hen on her eggs sits tight on them, and leaves them only to drive something off.
+            if (player is null && !fleeing && !flight.Courting && !flight.Robbing && !diving && (flight.Timer > 0f || IsBrooding(eagle)))
             {
                 SitOnPerch(eagle, flight, dt);
                 return;
@@ -262,12 +385,42 @@ public partial class Wildlife
             reaching = position.DistanceTo(at) < 9f && Mathf.Sin(flight.Circle * 3f) > 0.7f;
             flight.Landing = false;
         }
+        else if (flight.Loot is { } loot && !flight.Holding && _beasts.TryGetValue(loot, out var dropped))
+        {
+            // Diving after the dropped food, talons out, to snatch it as it falls or off the ground where it lands.
+            target = dropped.Body.GlobalPosition;
+            speed = stats.FlySpeed * 1.3f;
+            steering = 3f;
+            reaching = true;
+            flight.Landing = false;
+            if (position.DistanceTo(target) < LootReach + dropped.Animal.Stats.BodyRadius * dropped.Size)
+            {
+                // Live prey gets the talons driven home first.
+                if (!dropped.IsDead)
+                    Bite(loot, 1000f, position);
+                flight.Holding = true;
+                flight.Landing = true;
+            }
+        }
+        else if (flight.Robbing && Player is { } robbed)
+        {
+            // Close behind and a little above the player's bird, talons reaching for what it carries, matching its
+            // twists and turns and waiting for it to let go.
+            var behind = robbed.Velocity with { Y = 0f };
+            behind = behind.LengthSquared() > 0.25f ? behind.Normalized() : Vector3.Zero;
+            var at = robbed.GlobalPosition;
+            target = at - behind * 3f + Vector3.Up * 1.5f;
+            speed = Mathf.Min(stats.FlySpeed * 1.3f, robbed.Velocity.Length() + position.DistanceTo(target) * 0.8f + 3f);
+            steering = 3f;
+            reaching = position.DistanceTo(at) < 7f;
+            flight.Landing = false;
+        }
         else if (fleeing)
         {
             var away = (position - group.FleeFrom) with { Y = 0f };
             away = away.LengthSquared() > 0.01f ? away.Normalized() : Vector3.Forward;
             target = position + away * 30f;
-            target.Y = Surface(target) + SoarHeight * 1.5f;
+            target.Y = Surface(target) + flight.Height * 1.5f;
             speed = stats.FlySpeed;
             flight.Landing = false;
         }
@@ -285,11 +438,11 @@ public partial class Wildlife
         }
         else
         {
-            // Rides wide circles over the water, aiming a little ahead round the circle.
+            // Rides wide circles over the water (an owl, low ones over its ground), aiming a little ahead round the circle.
             flight.Timer -= dt;
-            flight.Circle += speed / SoarRadius * dt;
-            var on = flight.Over + new Vector3(Mathf.Cos(flight.Circle + 0.4f), 0f, Mathf.Sin(flight.Circle + 0.4f)) * SoarRadius;
-            target = on with { Y = Surface(on) + SoarHeight };
+            flight.Circle += speed / flight.Radius * dt;
+            var on = flight.Over + new Vector3(Mathf.Cos(flight.Circle + 0.4f), 0f, Mathf.Sin(flight.Circle + 0.4f)) * flight.Radius;
+            target = on with { Y = Surface(on) + flight.Height };
             if (flight.Timer <= 0f)
                 flight.Landing = true;
         }
@@ -301,15 +454,23 @@ public partial class Wildlife
         eagle.Velocity = eagle.Velocity.Lerp(wanted, Mathf.Min(1f, steering * dt));
         position += eagle.Velocity * dt;
 
-        // It keeps clear of the ground and the water, except when it comes down on its perch.
-        float floor = Surface(position) + (flight.Landing ? 0f : 1f);
+        // It keeps clear of the ground and the water, except when it comes down on its perch or snatches food off the ground.
+        bool low = flight.Landing || (flight.Loot is not null && !flight.Holding);
+        float floor = Surface(position) + (low ? 0f : 1f);
         if (position.Y < floor)
         {
             position.Y = floor;
             eagle.Velocity.Y = Mathf.Max(eagle.Velocity.Y, 0f);
         }
         eagle.Body.GlobalPosition = position;
-        Pose(eagle, dt, reaching, flapping: flight.PullAway > 0f);
+        Pose(eagle, dt, reaching || flight.Holding, flapping: flight.PullAway > 0f || flight.Holding);
+
+        // Food it has caught hangs from its talons all the way home.
+        if (flight.Holding && flight.Loot is { } caught && eagle.Animal is Bird bird)
+        {
+            var heading = eagle.Velocity with { Y = 0f };
+            Hold(caught, bird.Talons, heading.LengthSquared() > 0.01f ? heading.Normalized() : Vector3.Forward, inJaws: false);
+        }
     }
 
     /// <summary>The height of the ground, or of the water where there is any, below a point.</summary>
@@ -356,14 +517,17 @@ public partial class Wildlife
         animal.IsFlying = false;
         animal.IsSwimming = false;
         animal.Flap = animal.Dive = 0f;
-        animal.Settle(Posture.Standing, 1f, dt);
+        animal.Settle(IsBrooding(eagle) && !flight.Eating ? Posture.Lying : Posture.Standing, 1f, dt);
         if (Seen(eagle))
-            animal.Animate(0f, 0f, 0f, dt);
+            animal.Animate(0f, 0f, flight.Eating ? 1f : 0f, dt);
     }
 
     /// <summary>Springs off its perch with a few hard wingbeats, out the way it faces, to soar a while.</summary>
     private void TakeOff(Beast eagle, Flight flight)
     {
+        // Any meal it's in the middle of stays where it lies on the perch.
+        if (flight.Eating)
+            LoseLoot(flight);
         flight.Airborne = true;
         flight.Landing = false;
         flight.Timer = _rng.RandfRange(SoarMin, SoarMax);
@@ -384,6 +548,14 @@ public partial class Wildlife
         eagle.Animal.Rotation = new Vector3(0f, eagle.Yaw, 0f);
         if (eagle.Animal is Bird bird)
             bird.Clutching = false;
+        // It lays what it caught on the perch in front of its feet, and settles down to eat.
+        if (flight.Holding && flight.Loot is { } loot)
+        {
+            var ahead = new Vector3(-Mathf.Sin(eagle.Yaw), 0f, -Mathf.Cos(eagle.Yaw));
+            Drop(loot, lodged: flight.Perch + ahead * eagle.Animal.Stats.MouthDistance * eagle.Size);
+            flight.Holding = false;
+            flight.Eating = true;
+        }
         SitOnPerch(eagle, flight, 0f);
     }
 
@@ -394,6 +566,8 @@ public partial class Wildlife
             return;
         flight.Airborne = flight.Landing = false;
         flight.PullAway = 0f;
+        flight.Robbing = flight.Provoked = false;
+        LoseLoot(flight);
         flight.Timer = _rng.RandfRange(PerchMin, PerchMax);
         eagle.Body.GlobalPosition = flight.Perch;
     }

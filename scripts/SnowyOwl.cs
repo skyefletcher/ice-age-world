@@ -9,7 +9,7 @@ namespace IceAgeWorld;
 /// very upright, with almost no neck under a big round head. The face is a flat disc of feathers with two huge
 /// forward-facing yellow eyes and a small black hooked beak half buried in bristles. The legs are feathered all the
 /// way down to the toes, like thick white slippers, with long black talons poking out. The wings span about one and a
-/// half metres, broad and rounded at the tips, and the tail is short. A cock is nearly pure white, flecked with only a
+/// half metres, broad and rounded at the tips, and the tail is drawn long. A cock is nearly pure white, flecked with only a
 /// few dark marks; a hen is bigger and barred all over with dark crescents, as camouflage on her nest on the open
 /// tundra. It waddles, flaps, glides and dives as every <see cref="Bird"/> does, and can turn its head right round over
 /// its shoulder, as owls do, their eyes being fixed in their sockets. The model faces -Z.
@@ -46,6 +46,12 @@ public partial class SnowyOwl : Bird
     /// weight on slow, deep beats. Scales the wing's length, its depth and its flight feathers together.
     /// </summary>
     private const float WingScale = 1.3f;
+
+    /// <summary>
+    /// How much longer the tail is drawn than a real snowy owl's short, rounded one: a long fan trailing out behind,
+    /// to steer the giant's slow, low flight.
+    /// </summary>
+    private const float TailScale = 2.2f;
 
     private const float ArmLength = 0.32f * WingScale;
     private const float HandLength = 0.36f * WingScale;
@@ -156,14 +162,14 @@ public partial class SnowyOwl : Bird
         Head = Pivot(Neck, "Head", headPosition);
         BuildHead(Head, rng, talon);
 
-        // Tail: a short, rounded fan, barred across in the hen.
+        // Tail: a long, rounded fan, barred across in the hen.
         Tail = Pivot(Body, "Tail", new Vector3(0, 0.05f, 0.1f));
         TailFeathers = new Node3D[11];
         for (int i = 0; i < TailFeathers.Length; i++)
         {
             TailFeathers[i] = Pivot(Tail, "TailFeather", Vector3.Zero);
             var root = new Vector3(0, i * 0.0015f, 0);
-            Dress(TailFeathers[i], "Vane", c => Feather(rng, root, Vector3.Back, 0.15f, 0.035f, White, feather, c.Flight));
+            Dress(TailFeathers[i], "Vane", c => Feather(rng, root, Vector3.Back, 0.15f * TailScale, 0.04f, White, feather, c.Flight));
         }
 
         // Legs: feathered right down to the claws, the thickest-legged of owls, so they look like fluffy white slippers

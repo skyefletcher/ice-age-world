@@ -17,11 +17,13 @@ namespace IceAgeWorld;
 /// eagle off its shore but flies up and circles round it, and flying beside it for ten seconds pairs them up. The mate
 /// and their eaglets fly with the player from then on, land when it lands, share its kills and rake anything that
 /// attacks it (see <see cref="Wildlife"/>'s eagles).
+/// Snowy owls court the same way, out over the tundra. Neither bird has young straight away: a grown female with a
+/// mate lays a clutch in a nest, and the chicks hatch from it (see Player.Nest.cs).
 /// </summary>
 public partial class Player
 {
-    /// <summary>The snow leopard's or bald eagle's family, while the player is one.</summary>
-    public Herd? Family => Animal is (SnowLeopard or BaldEagle) && _herds.TryGetValue(Animal, out var family) ? family : null;
+    /// <summary>The snow leopard's, bald eagle's or snowy owl's family, while the player is one.</summary>
+    public Herd? Family => Animal is (SnowLeopard or Bird) && _herds.TryGetValue(Animal, out var family) ? family : null;
 
     /// <summary>Seconds the player's snow leopard must stay beside the wild one to pair up with it.</summary>
     private const float CourtshipSeconds = 10f;
@@ -44,12 +46,12 @@ public partial class Player
     private void Court(float dt)
     {
         CourtshipPrompt = null;
-        if (Animal is not (SnowLeopard or BaldEagle) || !_herds.TryGetValue(Animal, out var family) || Wildlife is null)
+        if (Animal is not (SnowLeopard or Bird) || !_herds.TryGetValue(Animal, out var family) || Wildlife is null)
         {
             _courtship = 0f;
             return;
         }
-        bool eagle = Animal is BaldEagle;
+        bool eagle = Animal is Bird;
 
         // Beaten in a fight, the wild snow leopard gives in and pairs up after all.
         if (!eagle && Wildlife.BeatenRival() is { } beaten)
@@ -90,7 +92,7 @@ public partial class Player
         if (!IsGrownUp)
         {
             _courtship = 0f;
-            CourtshipPrompt = "Grow up first to have cubs: keep eating and drinking";
+            CourtshipPrompt = $"Grow up first to have {(eagle ? "young" : "cubs")}: keep eating and drinking";
             return;
         }
 

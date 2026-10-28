@@ -4,11 +4,11 @@ using Godot;
 namespace IceAgeWorld;
 
 /// <summary>
-/// Raids on the player's eagle nest. Eggs are a meal for any hunter that can get at them, so every few minutes while
+/// Raids on the player's nests, the eagle's or the snowy owl's. Eggs are a meal for any hunter that can get at them, so every few minutes while
 /// the nest still has eggs in it, the nearest wild hunter comes for it, giving up any hunt it's on: on the ground anything from a wolf or hyena to
 /// a bear or big cat; up a tree only a snow leopard, the one hunter here that climbs. It goes straight to the nest,
 /// climbing the trunk if it must, and eats the eggs one after another until it's driven off. The player's mate and
-/// grown eaglets fly at it and rake it with their talons, as eagles do to defend a nest, and the player can fight it
+/// grown young fly at it and rake it with their talons, as eagles do to defend a nest, and the player can fight it
 /// too; hurt badly enough, it gives up and runs off.
 /// </summary>
 public partial class Wildlife
@@ -40,13 +40,17 @@ public partial class Wildlife
     /// <summary>The wild animal raiding the player's nest, if one is.</summary>
     public Animal? NestRaider => _raid?.Raider.Animal;
 
+    /// <summary>The nest being raided, if one is: the player may have more than one, one for each of its birds.</summary>
+    public Nest? RaidedNest => _raid?.Nest;
+
     /// <summary>Now and then sends a hunter for the nest, and ends the raid once it's beaten off, dead or the eggs are gone.</summary>
     private void WatchNest(float dt)
     {
-        var nest = Player?.EagleNest;
+        // Whichever of the player's nests still has eggs in it, the eagle's or the owl's.
+        var nest = Player?.Nests.FirstOrDefault(n => n.Eggs > 0);
         if (_raid is { } raid)
         {
-            if (raid.Raider.IsDead || nest != raid.Nest || nest.Eggs == 0 || raid.Raider.Health < RaiderGivesUp)
+            if (raid.Raider.IsDead || raid.Nest.Eggs == 0 || raid.Raider.Health < RaiderGivesUp)
                 EndRaid(raid);
             return;
         }

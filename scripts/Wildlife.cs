@@ -885,6 +885,7 @@ public partial class Wildlife : Node3D
         _time += dt;
         WatchForSquabbles(dt);
         WatchNest(dt);
+        WatchWildNests(dt);
 
         foreach (var group in _groups)
         {
