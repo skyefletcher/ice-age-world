@@ -757,7 +757,7 @@ public abstract partial class Animal : Node3D
         Ellipsoid(u => u * radii, segments, rings, material, colouring);
 
     /// <summary>A tube of varying radius swept along a path, with the cross-section frame carried along the curve.</summary>
-    protected static ArrayMesh Tube(Vector3[] path, float[] radii, int sides, Material material, bool capEnd)
+    public static ArrayMesh Tube(Vector3[] path, float[] radii, int sides, Material material, bool capEnd)
     {
         var mesh = new MeshBuilder();
         var rings = new int[path.Length, sides + 1];

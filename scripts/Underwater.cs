@@ -67,7 +67,7 @@ public partial class Underwater : Node3D
         // The ocean has a world of its own under it, its reefs and kelp forests (see Seabed).
         foreach (var lake in terrain.Lakes)
         {
-            if (lake == terrain.Ocean)
+            if (lake == terrain.Ocean || terrain.IsSpring(lake))
                 continue;
             Plant(lake, patches, 90, minDepth: 1f, reach: (0.25f, 0.55f), WeedMesh(), sway: 0.25f);
             Boulders(lake, 6);

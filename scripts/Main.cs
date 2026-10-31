@@ -51,6 +51,7 @@ public partial class Main : Node3D
         player.Network = network;
         network.Notice += message => hud.Notify(message);
         player.ChoreDone += chore => hud.Notify($"Chore done: {chore.Task}!  +{chore.Reward} coins");
+        player.PlaceFound += place => hud.Notify($"You found {place.Name}!  {place.Blurb}", 9f);
 
         var shop = new AnimalShop { Name = "AnimalShop", Player = player };
         hud.AddChild(shop);

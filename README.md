@@ -50,6 +50,21 @@ Coins are earned by doing chores. Three are always listed in the top right corne
 
 Coins and bought animals are saved on your computer. The shop comes up when you start and when you die, and B opens it at any time.
 
+## Famous places
+
+Scattered across the world are famous places to find. Each shows as a gold diamond with its name on the map, and the first time you reach one its name comes up on screen.
+
+| Place | What it is |
+|---|---|
+| Lookout Crag | A tower of granite 30 m high, near the start, with a long, thin ledge jutting out over the meadow. A ramp climbs up its side, so any animal can walk to the top and out to the tip of the ledge |
+| Mammoth Graveyard | The bones of five mammoths on bare black rock, the biggest with ribs arching high enough to walk through and great curling tusks, with tusks, ribs, skulls and bones strewn about among jagged black rocks sticking up out of the ground |
+| Frozen Falls | A waterfall frozen solid down the middle of the great cliff, with icicles along the lip and a frozen pool at its foot |
+| Balanced Stone | A huge boulder perched on a slim pillar of rock; stepping stones round the back lead up to its top |
+| Steaming Springs | Three hot, turquoise pools ringed with orange mineral crusts, steaming in the cold. You can drink from them |
+| Ice Arch | An arch of blue glacier ice 13 m high to walk under, among pinnacles of ice |
+| The Pillars | Hundreds of six-sided basalt columns rising in a rough stair; hop from column to column to the top |
+| Elder Tree | A giant golden larch, four times as tall and as wide as an ordinary tree, in a clearing of its own. A snow leopard can climb it to the top |
+
 ## Controls
 
 | Key | Action |
@@ -84,6 +99,8 @@ Coins and bought animals are saved on your computer. The shop comes up when you 
 - `scripts/Terrain.Mountains.cs` — heaps rounded, rocky hills together into a couple of ranges, their slopes running into one another in saddles, stepped in rough ledges, scored by gullies and strewn with tors, with bare rock showing through the snow
 - `scripts/Terrain.Caves.cs` — digs caves into the foot of the tallest hills: a winding tunnel under a rock roof you can walk on, opening into a big domed chamber at the back, dim inside, and marked on the map
 - `scripts/Terrain.Cliff.cs` — raises a great cliff south-west of the start: a sheer, bare rock face 26 m high, facing the meadow, with a long, gentle slope down its back that you can walk up to look out over the edge
+- `scripts/Terrain.Landmarks.cs` — the famous places: where each stands (on open steppe, clear of the hills, the cliff, the lakes and each other), raising Lookout Crag's tower and ramp and the Balanced Stone's knoll, digging the hot springs' pools, colouring the ground round them, and planting the Elder Tree
+- `scripts/LandmarkBuilder.cs` — builds the famous places' meshes in code: Lookout Crag's ledge, the mammoth skeletons, the frozen waterfall, the Balanced Stone, the springs' steam, the Ice Arch and the basalt Pillars, all solid to walk on and bump into
 - `scripts/Terrain.Seabed.cs` — shapes the ocean floor into sandy deeps, rocky reefs and pinnacles, and colours it
 - `scripts/TreeBuilder.cs` — builds randomised meshes for five kinds of tree (spruce, Scots pine, golden larch, white birch and narrow fir), each with a few long branches held out level, so no two trees look alike, remembering which branches are sturdy enough to walk along
 - `scripts/Water.cs` — lake and ocean water surfaces, rolling with waves and seen from above and below, and where (and how high) the water is for drinking, swimming and diving
@@ -123,6 +140,7 @@ Coins and bought animals are saved on your computer. The shop comes up when you 
 - `scripts/Player.Falling.cs` — falling and landing: heavy gravity that pulls harder on the way down, a cat twisting upright in mid-air, reaching its forepaws down and spreading its legs wide in a long fall, a crouch that soaks up a hard landing, and fall damage from drops higher than the animal can take (never for the snow leopard, or the eagle or owl, which open their wings)
 - `scripts/Player.Family.cs` — starting a family: stay beside the wild snow leopard for ten seconds as a grown-up snow leopard and the two pair up and have a cub; the mate and cub then travel with the player. Sometimes the wild one wants no mate and fights you with ordinary bites instead; beat it and it gives in and pairs up. Sometimes two wild snow leopards near you fight each other over you, and the winner pairs up with you. You keep only one mate: once you have one, any other wild snow leopard that comes close fights your mate to the death, and if your mate dies the newcomer goes after the cubs one by one; any it fails to kill live on, and it becomes your new mate, with new cubs. Everyone in these fights uses the special attack. As a grown bald eagle, a wild eagle of the other sex circles round you instead of chasing you off; fly beside it for ten seconds and the two pair up, and the mate flies with you from then on. A grown snowy owl courts a wild owl of the other sex the same way, and the pair raise owlets from a nest (see `Player.Nest.cs`)
 - `scripts/Player.Nest.cs` — bird nests: a grown female bald eagle or snowy owl with a mate builds one with N and lays her clutch, one egg hatching every five minutes into a chick that joins her family, even while she's away. The eagle builds a great stick heap on the ground or up a tree and lays five eggs; the owl scrapes a hollow in a mossy hummock, only on the ground, and lays seven. Lying on the nest (X), she broods the eggs, and her mate flies off, catches something light enough to carry, and brings it back to the nest for her to eat. Once every egg has hatched she can lay another clutch (N): standing on her old nest she lays in it again, anywhere else she builds a new one. Her mate stays, and the grown chicks of the last clutch fly off to live on their own. The mate and grown young also stoop in to help whenever she strikes prey with her talons
+- `scripts/Player.Exploring.cs` — finding the famous places: the first time the player reaches one, its name and what to do there come up on screen
 - `scripts/Nest.cs` — the nest itself, built in code: a broad heap of crossed sticks for the eagle, or for the snowy owl a scrape in a mossy hummock, with the eggs on top, which go one by one as they hatch or are eaten
 - `scripts/Wildlife.Raids.cs` — raids on the eagle's or owl's nest: every few minutes while one has eggs, the nearest wild hunter comes for it (only a snow leopard, climbing the trunk, if it's up a tree) and eats the eggs one by one, until the bird's family, flying at it with their talons, or the player drives it off
 - `scripts/Player.Hunting.cs` — hunting for animals that hunt (snow leopard, arctic wolf, cave hyena, bald eagle, snowy owl, polar bear and the big cats): pouncing on wild animals, eating from kills, carrying a kill in the jaws, up a tree if need be, to put it down and eat it there, and for the eagle and owl, snatching prey on the wing and carrying it off in its talons
@@ -139,7 +157,7 @@ Coins and bought animals are saved on your computer. The shop comes up when you 
 - `scripts/BloodTrail.cs` — the spots of blood those drops leave in the snow, so a wounded animal leaves a trail
 - `scripts/HealthBar.cs` — the health bar floating over every wild animal, facing the camera: green when healthy, yellow when hurt, red when close to falling
 - `scripts/Hud.cs` — current animal name, sex (and how grown it is), health (coloured green, yellow or red like the wild animals' bars), food (its icon showing what the animal eats), water, stamina and, while diving, breath bars, the on-screen action prompt, your coins and chores, messages such as who joined the game, and a warning while wolves are hunting the player
-- `scripts/WorldMap.cs` — the round map in the bottom right corner (M hides it): the land round the player, painted from the terrain, following it with north up, an arrow for the player and dots for every other animal of its kind, wild or travelling with it (those out of reach on the rim)
+- `scripts/WorldMap.cs` — the round map in the bottom right corner (M hides it): the land round the player, painted from the terrain, following it with north up, an arrow for the player and dots for every other animal of its kind, wild or travelling with it (those out of reach on the rim), and gold diamonds with the names of the famous places nearby
 - `scripts/InputSetup.cs` — key bindings
 - `scripts/StartMenu.cs` — the start menu: your name, and play alone, host a game, or join a friend's by address
 - `scripts/Network.cs` — playing together: hosting and joining, sending your animal to the other players twenty times a second, and carrying bites between players

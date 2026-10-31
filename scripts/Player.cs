@@ -327,6 +327,7 @@ public partial class Player : CharacterBody3D
         if (!IsDiving)
             Breathe(dt);
         Court(dt);
+        Explore();
         TendNest();
 
         // Movement is relative to where the camera is facing, flattened onto the ground plane.

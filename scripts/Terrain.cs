@@ -81,8 +81,8 @@ public readonly record struct Tree(Transform3D Transform, TreeBuilder.Shape Shap
 /// <summary>
 /// Procedurally generates the ice-age landscape: a noise-based heightmap mesh, matching collision,
 /// a ring of mountains around the edge to keep players in, a couple of ranges of rocky hills rising out of the steppe, with
-/// caves dug into their flanks (see Terrain.Caves.cs), a great cliff (see Terrain.Cliff.cs), lake basins and patches of
-/// mixed, randomised forest.
+/// caves dug into their flanks (see Terrain.Caves.cs), a great cliff (see Terrain.Cliff.cs), famous places to find (see
+/// Terrain.Landmarks.cs), lake basins and patches of mixed, randomised forest.
 /// </summary>
 public partial class Terrain : Node3D
 {
@@ -244,6 +244,7 @@ public partial class Terrain : Node3D
         BuildCollision();
         BuildCaveRoofs();
         ScatterTrees();
+        BuildLandmarks();
     }
 
     /// <summary>Height of the top of the land at a world-space X/Z position: over a cave, the top of its roof.</summary>
@@ -289,7 +290,7 @@ public partial class Terrain : Node3D
     /// </summary>
     public float GrassAmount(float x, float z)
     {
-        if (IsSteep(x, z) || DistanceFromWater(x, z) < 2.5f || IsInCave(x, z))
+        if (IsSteep(x, z) || DistanceFromWater(x, z) < 2.5f || IsInCave(x, z) || IsBareLandmark(x, z))
             return 0f;
 
         return 1f - Mathf.SmoothStep(HeightScale * 0.18f, HeightScale * 0.28f, GetHeight(x, z));
@@ -357,7 +358,8 @@ public partial class Terrain : Node3D
         float mud = (1f - Mathf.SmoothStep(1f, 3.5f, DistanceFromWater(x, z))) * (1f - Mathf.SmoothStep(2f, 5f, h - NearestLake(x, z).Surface));
         // Out from the muddy shallows, a lake bed is silt; the ocean's has sand and reefs instead.
         float silt = Mathf.SmoothStep(1.5f, 4f, LakeSurfaceAt(x, z) - h);
-        return SeabedColour(Steppe.Lerp(Snow, snow).Lerp(Rock, rock).Lerp(Mud, mud).Lerp(Silt, silt), x, z, h, rock);
+        var ground = SeabedColour(Steppe.Lerp(Snow, snow).Lerp(Rock, rock).Lerp(Mud, mud).Lerp(Silt, silt), x, z, h, rock);
+        return LandmarkGround(ground, x, z);
     }
 
     private void GenerateHeights()
@@ -373,6 +375,7 @@ public partial class Terrain : Node3D
 
         PlaceCliff();
         PlaceMountains();
+        PlaceLandmarks();
         _heights = new float[Resolution * Resolution];
         _surface = _heights;
         for (int z = 0; z < Resolution; z++)
@@ -388,7 +391,7 @@ public partial class Terrain : Node3D
             // Flatten the spawn area in the middle of the map.
             float fromCentre = new Vector2(wx, wz).Length();
             h *= Mathf.Lerp(0.3f, 1f, Mathf.SmoothStep(0f, 60f, fromCentre));
-            h += MountainHeight(wx, wz) + CliffHeightAt(wx, wz);
+            h += MountainHeight(wx, wz) + CliffHeightAt(wx, wz) + LandmarkHeight(wx, wz);
 
             _heights[z * Resolution + x] = h + EdgeWall(wx, wz);
         }
@@ -433,7 +436,8 @@ public partial class Terrain : Node3D
 
             // Keep lakes off the cliff too, whose bank would otherwise wear its face down into a slope.
             if (GetHeight(centre.X, centre.Y) > HeightScale * 0.2f
-                || DistanceFromCliff(centre) < radius + ShoreWidth + CliffFace + CliffWander)
+                || DistanceFromCliff(centre) < radius + ShoreWidth + CliffFace + CliffWander
+                || LandmarkAt(centre.X, centre.Y, margin: radius + ShoreWidth + 15f) is not null)
                 continue;
 
             bool overlaps = false;
@@ -451,6 +455,7 @@ public partial class Terrain : Node3D
         // The lake by the spawn point comes first, and the ocean second, so the otter rafts live on those two.
         _lakes.RemoveAt(0);
         _lakes.Insert(Mathf.Min(1, _lakes.Count), big);
+        DigSprings();
     }
 
     /// <summary>The ocean's centre: the north-east corner of the world.</summary>
@@ -630,7 +635,7 @@ public partial class Terrain : Node3D
 
             bool nearSpawn = new Vector2(x, z).Length() < 20f;
             bool tooHigh = h > HeightScale * 0.4f;
-            if (nearSpawn || tooHigh || IsSteep(x, z) || DistanceFromWater(x, z) < 3f || IsInCave(x, z, margin: 4f))
+            if (nearSpawn || tooHigh || IsSteep(x, z) || DistanceFromWater(x, z) < 3f || IsInCave(x, z, margin: 4f) || LandmarkAt(x, z, margin: 6f) is not null)
                 continue;
 
             float density = forestNoise.GetNoise2D(x, z) * 0.5f + 0.5f;

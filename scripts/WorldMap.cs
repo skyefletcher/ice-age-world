@@ -6,9 +6,9 @@ namespace IceAgeWorld;
 /// <summary>
 /// A round map of the land round the player, as in Savannah Life, in the bottom right corner unless hidden with M: green
 /// steppe, white snowfields and grey crags, blue lakes and dark specks of forest, black marks for cave mouths, drawn
-/// once from the terrain, with north at the top. It follows the player, the arrow in the middle pointing the way it
-/// faces, and shows only the land nearby. Dots show where every other animal of its kind is: the wild ones in gold and
-/// the player's own pack, herd or family in green.
+/// once from the terrain, with north at the top, and gold diamonds for the famous places, named. It follows the player,
+/// the arrow in the middle pointing the way it faces, and shows only the land nearby. Dots show where every other animal
+/// of its kind is: the wild ones in gold and the player's own pack, herd or family in green.
 /// </summary>
 public partial class WorldMap : Control
 {
@@ -96,18 +96,32 @@ public partial class WorldMap : Control
         foreach (var at in Player.Companions)
             Dot(ToMap(at), Own);
 
+        // The famous places nearby, each a gold diamond with its name over it, so the player can make for them.
+        var font = ThemeDB.FallbackFont;
+        foreach (var landmark in terrain.Landmarks)
+        {
+            var spot = middle + (landmark.Centre - new Vector2(player.X, player.Z)) / (terrain.HalfSize * ViewShare) * radius;
+            if (spot.DistanceTo(middle) > radius - 8f)
+                continue;
+            Diamond(spot);
+            var size = font.GetStringSize(landmark.Name, fontSize: LabelFont);
+            var label = spot + new Vector2(-size.X / 2f, -10f);
+            DrawStringOutline(font, label, landmark.Name, fontSize: LabelFont, size: 4, modulate: Ink);
+            DrawString(font, label, landmark.Name, fontSize: LabelFont);
+        }
+
         // The player: an arrow pointing the way it faces.
         Arrow(ToMap(Player.GlobalPosition), Player.Animal.Rotation.Y);
 
         // North, and a key to the marks, laid out one after another on a dark strip beneath the map, as wide as it
         // needs to be (wider than the little map itself).
-        var font = ThemeDB.FallbackFont;
         DrawString(font, new Vector2(middle.X - 5f, area.Position.Y + 18f), "N", fontSize: 14, modulate: Ink);
         (string Text, Action<Vector2> Mark)[] entries =
         [
             ("You", at => Arrow(at, 0f)),
             ($"Wild {Plural(Player.Animal.DisplayName.ToLower())}", at => Dot(at, Wild)),
             ("With you", at => Dot(at, Own)),
+            ("Famous place", Diamond),
         ];
         float EntryWidth(string text) => 12f + font.GetStringSize(text, fontSize: KeyFont).X + 16f;
         float width = 0f;
@@ -138,6 +152,17 @@ public partial class WorldMap : Control
 
     /// <summary>Size of the key's writing.</summary>
     private const int KeyFont = 14;
+
+    /// <summary>Size of the landmarks' names on the map.</summary>
+    private const int LabelFont = 13;
+
+    /// <summary>A gold diamond marking a famous place.</summary>
+    private void Diamond(Vector2 at)
+    {
+        Vector2[] outline = [at + new Vector2(0f, -7f), at + new Vector2(7f, 0f), at + new Vector2(0f, 7f), at + new Vector2(-7f, 0f)];
+        DrawColoredPolygon(outline, Gold);
+        DrawPolyline([.. outline, outline[0]], Ink, 2f);
+    }
 
     private void Dot(Vector2 at, Color colour)
     {

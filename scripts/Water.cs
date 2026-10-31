@@ -54,6 +54,9 @@ public partial class Water : Node3D
             material.SetShaderParameter("waves", waves);
             material.SetShaderParameter("wave_height", height);
             material.SetShaderParameter("open_sea", ocean ? 1f : 0f);
+            // The hot springs are a clear, milky turquoise, coloured by the minerals in them.
+            if (terrain.IsSpring(lake))
+                material.SetShaderParameter("still_colour", new Color(0.3f, 0.66f, 0.64f));
             _materials.Add(material);
 
             AddChild(new MeshInstance3D
